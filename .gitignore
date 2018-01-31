@@ -29,3 +29,4 @@ pip-log.txt
 #runtime log
 log
 config.json
+.idea/

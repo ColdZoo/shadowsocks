@@ -31,7 +31,7 @@ except ImportError:
 
 import socket
 import select
-import SocketServer
+import socketserver
 import struct
 import string
 import hashlib
@@ -46,7 +46,7 @@ def get_table(key):
     s = m.digest()
     (a, b) = struct.unpack('<QQ', s)
     table = [c for c in string.maketrans('', '')]
-    for i in xrange(1, 1024):
+    for i in range(1, 1024):
         table.sort(lambda x, y: int(a % (ord(x) + i) - a % (ord(y) + i)))
     return table
 
@@ -60,11 +60,11 @@ def send_all(sock, data):
         if bytes_sent == len(data):
             return bytes_sent
 
-class ThreadingTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):   # Multiple inheritance
+class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):   # Multiple inheritance
     allow_reuse_address = True
 
 
-class Socks5Server(SocketServer.StreamRequestHandler):
+class Socks5Server(socketserver.StreamRequestHandler):
     ''' RequesHandlerClass Definition '''
     def handle_tcp(self, sock, remote):
         try:
@@ -140,17 +140,17 @@ class Socks5Server(SocketServer.StreamRequestHandler):
                 remote.connect((SERVER, REMOTE_PORT))
                 self.send_encrypt(remote, addr_to_send)      # encrypted
                 logging.info('connecting %s:%d' % (addr, port[0]))
-            except socket.error, e:
+            except socket.error as e:
                 logging.warn(e)
                 return
             self.handle_tcp(sock, remote)
-        except socket.error, e:
+        except socket.error as e:
             logging.warn(e)
 
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
-    print 'shadowsocks v0.9'
+    print('shadowsocks v0.9')
 
     with open('config.json', 'rb') as f:
         config = json.load(f)
@@ -179,6 +179,6 @@ if __name__ == '__main__':
         server = ThreadingTCPServer(('', PORT), Socks5Server)   # s.bind(('', 80)) specifies that the socket is reachable by any address the machine happens to have.
         logging.info("starting server at port %d ..." % PORT)
         server.serve_forever()
-    except socket.error, e:
+    except socket.error as e:
         logging.error(e)
 
