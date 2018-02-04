@@ -64,29 +64,84 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):  
 class Socks5Server(socketserver.StreamRequestHandler):
 
 
+    def Mysplit(self, frame):  # return (head_rmnt, frame_list, tail_rmnt)
+        if hsp.SPLIT_STRING in frame:
+            frames = frame.split(hsp.SPLIT_STRING)
+            if len(frames) == 2:
+                frame_list = []
+            elif len(frames) >2:
+                frame_list = frames[1:-1]
+            return (frames[0], frame_list, frames[-1])
+
+        else:
+            return (frame, None, None)  # it's a whole frame
+
+
+    def Mysend(self, sock, data):
+        if data == b'':
+            return
+
+        n = hsp.bytedata()
+        try:
+            if n.decode_protocol(proto_byte=data) != 'Done':
+                logging.warning('Illegal packet, skipped')
+                return
+
+            result = send_all(sock, n.raw_data)  # send to local socket(application)
+            if result < len(n.raw_data):
+                raise Exception('failed to send all data')
+
+        except Exception as e:
+            logging.warning(e)
+
+
     def handle_tcp(self, sock, remote):
         try:
             fdset = [sock, remote]
+            sock_remaint = b''
             while True:
-                r, w, e = select.select(fdset, [], [])  # wait until ready
-                if sock in r:
-                    data = sock.recv(4096)
-                    if len(data) <= 0:
-                        break
-                    # logging.info('send_to_remote: ' + str(data))
-                    data = self.decrypt(data)
-                    result = send_all(remote, data)
-                    if result < len(data):
-                        raise Exception('failed to send all data')
-                if remote in r:
-                    data = remote.recv(4096)
-                    if len(data) <= 0:
-                        break
-                    # logging.info('send_to_local: ' + str(data))
-                    data = self.encrypt(data)
-                    result = send_all(sock, data)
-                    if result < len(data):
-                        raise Exception('failed to send all data')
+                try:
+
+                    r, w, e = select.select(fdset, [], [])  # wait until ready
+                    if sock in r:
+                        data = sock.recv(4096)
+                        if len(data) <= 0:
+                            break
+
+                        data = self.decrypt(data)
+
+                        head_rmnt, frame_list, tail_rmnt = self.Mysplit(data)
+
+                        if hsp.SPLIT_STRING in data:
+                            frame = sock_remaint + head_rmnt
+                            for f in frame.split(hsp.SPLIT_STRING):
+                                self.Mysend(remote, f)
+
+                            for frame in frame_list:
+                                self.Mysend(remote, frame)
+                            sock_remaint = tail_rmnt
+
+
+                        else:
+                            sock_remaint += data  # very long frame
+
+
+                    if remote in r:
+                        data = remote.recv(4096)
+                        if len(data) <= 0:
+                            break
+
+                        m = hsp.bytedata(raw_data=data)
+                        data = self.encrypt(m.encode_protocol())
+
+
+                        result = send_all(sock, data)
+                        if result < len(data):
+                            raise Exception('failed to send all data')
+
+                except ConnectionResetError:
+                    logging.debug('connection has reset')
+
 
         except Exception as e:
             logging.debug("Accidentally exited")
@@ -107,34 +162,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
             sock = self.connection
             data = self.connection.recv(4096)
             dec_data = self.decrypt(data)
-
-            # data = dec_data
-
-
-            # # follow self defined protocol
-            # data_pointer = 0
-            #
-            # addrtype = data[data_pointer]      # receive addr type, unicode
-            # if addrtype == 1: #ipv4
-            #     addr = socket.inet_ntoa(data[1:4])   # get dst addr
-            #     data_pointer = 5 # point to the port
-            # elif addrtype == 3: #domain name or ipv6
-            #     # addr = self.decrypt(
-            #     #     self.rfile.read(ord(self.decrypt(sock.recv(1)))))       # read 1 byte of len, then get 'len' bytes name
-            #     addr_len = data[1]
-            #     addr = data[2:2+addr_len]
-            #     addr = addr.decode('utf-8')
-            #     data_pointer = 2+addr_len
-            # else:
-            #     # not support
-            #     logging.warn('addr_type not support')
-            #     return
-            #
-            #
-            # # '>H' means big endian, unsigned short
-            # port_range = data[data_pointer:data_pointer+2]
-            # data_pointer += 2                        # already got all the information we need, if it has more byte, should send them to the remote
-            # port = struct.unpack('>H', port_range)
 
             try:
                 obj = hsp.handshake()
@@ -163,7 +190,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 # remaint = data[data_pointer:]
                 if len(remaint) > 0:
                     logging.debug('sending_remaint_: ' + str(len(remaint)))
-                    send_all(remote, remaint)
+                    data_to_send = hsp.bytedata(raw_data=remaint).encode_protocol()
+                    send_all(remote, self.encrypt(data_to_send))
 
 
             except Exception as e:
@@ -176,6 +204,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
             self.handle_tcp(sock, remote)
         except socket.error as e:
             logging.warn(e)
+
+
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')

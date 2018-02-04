@@ -30,6 +30,7 @@ except ImportError:
     gevent = None
     print(sys.stderr, 'warning: gevent not found, using threading instead')
 
+
 import socket
 import select
 import socketserver
@@ -60,29 +61,92 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):  
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
+
+
+    def Mysplit(self, frame):  # return (head_rmnt, frame_list, tail_rmnt)
+        if hsp.SPLIT_STRING in frame:
+            frames = frame.split(hsp.SPLIT_STRING)
+            if len(frames) == 2:
+                frame_list = []
+            elif len(frames) >2:
+                frame_list = frames[1:-1]
+            return (frames[0], frame_list, frames[-1])
+
+        else:
+            return (frame, None, None)  # it's a whole frame
+
+
+    def Mysend(self,sock, data):
+        if not isinstance(data, bytes):
+            pass
+        if data == b'':
+            return
+
+        n = hsp.bytedata()
+        try:
+            if n.decode_protocol(proto_byte=data) != 'Done':
+                logging.warning('Illegal packet, skipped')
+                return
+
+            result = send_all(sock, n.raw_data)  # send to local socket(application)
+            if result < len(n.raw_data):
+                raise Exception('failed to send all data')
+
+        except Exception as e:
+            logging.warning(e)
+
+
     ''' RequesHandlerClass Definition '''
     def handle_tcp(self, sock, remote):
         try:
             fdset = [sock, remote]
-            while True:
-                r, w, e = select.select(fdset, [], [])      # use select I/O multiplexing model
-                if sock in r:                               # if local socket is ready for reading
-                    data = sock.recv(4096)
-                    if len(data) <= 0:                      # received all data
-                        break
-                    data = self.encrypt(data)
-                    result = send_all(remote, data)   # send data after encrypting
-                    if result < len(data):
-                        raise Exception('failed to send all data')
 
-                if remote in r:                             # remote socket(proxy) ready for reading
-                    data = remote.recv(4096)
-                    if len(data) <= 0:
-                        break
-                    data = self.decrypt(data)
-                    result = send_all(sock, data)     # send to local socket(application)
-                    if result < len(data):
-                        raise Exception('failed to send all data')
+            remote_remaint = b''
+
+            while True:
+                try:
+                    r, w, e = select.select(fdset, [], [])      # use select I/O multiplexing model
+                    if sock in r:                               # if local socket is ready for reading
+
+                        data = sock.recv(4096)
+                        if len(data) <= 0:                      # received all data
+                            break
+
+                        m = hsp.bytedata(raw_data=data)
+
+                        data = self.encrypt(m.encode_protocol())
+                        result = send_all(remote, data)   # send data after encrypting
+
+                        if result < len(data):
+                            raise Exception('failed to send all data')
+
+
+
+                    if remote in r:                             # remote socket(proxy) ready for reading
+                        data = remote.recv(4096)
+                        if len(data) <= 0:
+                            break
+
+                        data = self.decrypt(data)
+                        head_rmnt, frame_list, tail_rmnt = self.Mysplit(data)
+
+                        if hsp.SPLIT_STRING in data:
+                            frame_tmp = remote_remaint + head_rmnt
+                            for f in frame_tmp.split(hsp.SPLIT_STRING):
+                                self.Mysend(sock, f)
+
+                            for frame in frame_list:
+                                self.Mysend(sock, frame)
+                            remote_remaint = tail_rmnt
+
+
+                        else:
+                            remote_remaint += data
+                except ConnectionResetError:
+                    logging.debug('connection has reset')
+                    continue
+
+
         except Exception as e:
             logging.debug(e)
         finally:
@@ -115,8 +179,10 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
             data = self.connection.recv(4096).strip()
 
+            if data == b'':
+                return
 
-            mode = data[1]           # CMD == 0x01 (connect) # will triger out of range exception if client sent b''
+            mode = data[1]           # CMD == 0x01 (connect)
 
             data_to_send = {}
             data_to_send['type'] = 'handshake'
@@ -147,11 +213,10 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 try:
                     addr = data[ptr:ptr+addr_len]
 
-                except IndexError:
+                except:
                     raise Exception('addr_len too long')
 
                 ptr += addr_len
-                # addr = self.rfile.read(ord(addr_len))   # Followed by domain name(e.g. www.google.com)
 
                 addr_len = min(addr_len, 255)    # in case the url length is too long
 
@@ -197,7 +262,11 @@ class Socks5Server(socketserver.StreamRequestHandler):
             except socket.error as e:
                 logging.warn(e)
                 return
+
+
             self.handle_tcp(sock, remote)
+
+
         except Exception as e:
             logging.warn(data)
             logging.warn(e)
