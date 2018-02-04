@@ -38,14 +38,13 @@ import socket
 import select
 import socketserver
 import struct
-# import string
-# import hashlib
 import os
 import json
 import logging
 import getopt
-# import six
 import myCrypt
+
+import handshake_protocol_v1 as hsp
 
 
 def send_all(sock, data):
@@ -108,45 +107,65 @@ class Socks5Server(socketserver.StreamRequestHandler):
             sock = self.connection
             data = self.connection.recv(4096)
             dec_data = self.decrypt(data)
-            data = dec_data
+
+            # data = dec_data
 
 
-            # follow self defined protocol
-            data_pointer = 0
+            # # follow self defined protocol
+            # data_pointer = 0
+            #
+            # addrtype = data[data_pointer]      # receive addr type, unicode
+            # if addrtype == 1: #ipv4
+            #     addr = socket.inet_ntoa(data[1:4])   # get dst addr
+            #     data_pointer = 5 # point to the port
+            # elif addrtype == 3: #domain name or ipv6
+            #     # addr = self.decrypt(
+            #     #     self.rfile.read(ord(self.decrypt(sock.recv(1)))))       # read 1 byte of len, then get 'len' bytes name
+            #     addr_len = data[1]
+            #     addr = data[2:2+addr_len]
+            #     addr = addr.decode('utf-8')
+            #     data_pointer = 2+addr_len
+            # else:
+            #     # not support
+            #     logging.warn('addr_type not support')
+            #     return
+            #
+            #
+            # # '>H' means big endian, unsigned short
+            # port_range = data[data_pointer:data_pointer+2]
+            # data_pointer += 2                        # already got all the information we need, if it has more byte, should send them to the remote
+            # port = struct.unpack('>H', port_range)
 
-            addrtype = data[0]      # receive addr type, unicode
-            if addrtype == 1: #ipv4
-                addr = socket.inet_ntoa(data[1:4])   # get dst addr
-                data_pointer = 5 # point to the port
-            elif addrtype == 3: #domain name or ipv6
-                # addr = self.decrypt(
-                #     self.rfile.read(ord(self.decrypt(sock.recv(1)))))       # read 1 byte of len, then get 'len' bytes name
-                addr_len = data[1]
-                addr = data[2:2+addr_len]
-                addr = addr.decode('utf-8')
-                data_pointer = 2+addr_len
-            else:
-                # not support
-                logging.warn('addr_type not support')
+            try:
+                obj = hsp.handshake()
+                if obj.decode_protocol(dec_data) != 'Done':
+                    raise Exception('illegal packet recvd!')
+                port = (int(obj.port), 0)
+                addr = obj.addr
+            except Exception as e:
+                logging.warning(e)
                 return
 
 
-            # '>H' means big endian, unsigned short
-            port_range = data[data_pointer:data_pointer+2]
-            data_pointer += 2                        # already got all the information we need, if it has more byte, should send them to the remote
-            port = struct.unpack('>H', port_range)
+            # got all required information
             try:
 
 
                 logging.info('connecting %s:%d' % (addr, port[0]))
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                remote.settimeout(1)
-                remote.connect((addr, port[0]))         # connect to dst
-                remaint = data[data_pointer:]
-                if len(remaint) > 0:
-                    logging.debug(remaint)
-                    send_all(remote, remaint)
+
+
+                remote.settimeout(3)
+                remote.connect((addr, port[0]))         # connect to dst, may fail if blocked by gfw
+
+
+                # remaint = data[data_pointer:]
+                # if len(remaint) > 0:
+                #     logging.debug(remaint)
+                #     send_all(remote, remaint)
+
+
             except Exception as e:
                 # Connection refused
                 logging.warn(e)

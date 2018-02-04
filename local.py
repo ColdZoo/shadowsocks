@@ -28,26 +28,20 @@ try:
     gevent.monkey.patch_all(dns=gevent.version_info[0]>=1)
 except ImportError:
     gevent = None
-    print >>sys.stderr, 'warning: gevent not found, using threading instead'
+    print(sys.stderr, 'warning: gevent not found, using threading instead')
 
 import socket
 import select
 import socketserver
 import struct
-import string
-import hashlib
 import os
 import json
 import logging
 import getopt
 import myCrypt
 
+import handshake_protocol_v1 as hsp
 
-def get_table(key):
-    table = str.maketrans('abcdefghijklmnopqrstuvwxyz', 'zyxwvutsrqponmlkjihgfedcba')
-    decrypt_table = str.maketrans('zyxwvutsrqponmlkjihgfedcba', 'abcdefghijklmnopqrstuvwxyz')
-
-    return table, decrypt_table
 
 
 def send_all(sock, data):
@@ -91,7 +85,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
                         raise Exception('failed to send all data')
         except Exception as e:
             logging.debug(e)
-            logging.debug('local Accident!')
         finally:
             sock.close()
             remote.close()
@@ -107,66 +100,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
         # logging.info('sending: ' + str(enc))
         sock.send(self.encrypt(data))
 
-    def handle_old(self):
-        try:
-            sock = self.connection        # local socket [127.1:port]
-            sock.recv(262)                # Sock5 Verification packet
-            sock.send(b"\x05\x00")         # Sock5 Response: '0x05' Version 5; '0x00' NO AUTHENTICATION REQUIRED
-            # After Authentication negotiation
-
-
-            data = self.rfile.read(4)     # Forward request format: VER CMD RSV ATYP (4 bytes)
-            mode = data[1]           # CMD == 0x01 (connect)
-            if mode != 1:
-                logging.warn('mode != 1')
-                return
-            addrtype = data[3]       # indicate destination address type
-            addr_to_send = bytes([addrtype])
-            if addrtype == 1:             # IPv4
-                addr_ip = self.rfile.read(4)            # 4 bytes IPv4 address (big endian)
-                addr = socket.inet_ntoa(addr_ip)
-                addr_to_send += addr_ip
-            elif addrtype == 3:           # FQDN (Fully Qualified Domain Name)
-
-                # addr_len = self.rfile.read(10)           # Domain name's Length
-                self.rfile.read(1) # tab char
-                chunk = self.rfile.read(1)
-                c = ''
-                while c != b"\x00":
-                    c = self.rfile.read(1)
-                    chunk += c
-
-                chunk = chunk[:-1]
-
-                # addr = self.rfile.read(ord(addr_len))   # Followed by domain name(e.g. www.google.com)
-                addr = chunk
-                # addr_to_send += bytes([addr_len]) + bytes([addr])
-            else:
-                logging.warn('addr_type not support')
-                # not support
-                return
-            addr_port = self.rfile.read(2)
-            addr_to_send += addr_port                   # addr_to_send = ATYP + [Length] + dst addr/domain name + port
-            port = struct.unpack('>H', addr_port)       # prase the big endian port number. Note: The result is a tuple even if it contains exactly one item.
-            try:
-                reply = b"\x05\x00\x00\x01"              # VER REP RSV ATYP
-                reply += socket.inet_aton('0.0.0.0') + struct.pack(">H", 2222)  # listening on 2222 on all addresses of the machine, including the loopback(127.0.0.1)
-                self.wfile.write(reply)                 # response packet
-                # reply immediately
-                if '-6' in sys.argv[1:]:                # IPv6 support
-                    remote = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-                else:
-                    remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)       # turn off Nagling
-                remote.connect((SERVER, REMOTE_PORT))
-                self.send_encrypt(remote, addr_to_send)      # encrypted
-                logging.info('connecting %s:%d' % (addr, port[0]))
-            except socket.error as e:
-                logging.warn(e)
-                return
-            self.handle_tcp(sock, remote)
-        except socket.error as e:
-            logging.warn(e)
 
     def handle(self):
         try:
@@ -180,8 +113,14 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
 
 
-            data = self.connection.recv(4096)
-            mode = data[1]           # CMD == 0x01 (connect)
+            data = self.connection.recv(4096).strip()
+
+
+            mode = data[1]           # CMD == 0x01 (connect) # will triger out of range exception if client sent b''
+
+            data_to_send = {}
+            data_to_send['type'] = 'handshake'
+            data_to_send['version'] = 'v1'
             if mode != 1:
                 logging.warn('mode != 1')
                 return
@@ -195,8 +134,11 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 ip_range = data[ptr:4+ptr]
                 addr = socket.inet_ntoa(data[ptr:4+ptr])  # get dst addr
 
-                addr_to_send += ip_range
                 ptr += 4
+
+                addr_to_send += ip_range
+                data_to_send['dst_addr'] = {'type':'ip', 'addr': addr.decode('utf-8')}
+
             elif addrtype == 3:           # FQDN (Fully Qualified Domain Name)
 
                 addr_len = int(data[ptr])          # Domain name's Length
@@ -204,6 +146,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
                 try:
                     addr = data[ptr:ptr+addr_len]
+
                 except IndexError:
                     raise Exception('addr_len too long')
 
@@ -213,6 +156,10 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 addr_len = min(addr_len, 255)    # in case the url length is too long
 
                 byte_len_ = bytes([addr_len])   # 0~255
+
+                data_to_send['dst_addr'] = {'type':'url', 'addr':addr.decode('utf-8')}
+
+
                 addr_to_send += byte_len_
                 addr_to_send += addr
             else:
@@ -222,10 +169,13 @@ class Socks5Server(socketserver.StreamRequestHandler):
             addr_port = data[ptr: 2+ptr]
             # addr_to_send += addr_port                   # addr_to_send = ATYP + [Length] + dst addr/domain name + port
             port = struct.unpack('>H', addr_port)       # prase the big endian port number. Note: The result is a tuple even if it contains exactly one item.
+
+            data_to_send['dst_port'] = port[0]
+
             addr_to_send += addr_port
             try:
                 reply = b"\x05\x00\x00\x01"              # VER REP RSV ATYP
-                reply += socket.inet_aton('0.0.0.0') + struct.pack(">H", 2222)  # listening on 2222 on all addresses of the machine, including the loopback(127.0.0.1)
+                reply += socket.inet_aton('0.0.0.0') + struct.pack(">H", 8339)  # listening on 2222 on all addresses of the machine, including the loopback(127.0.0.1)
                 self.wfile.write(reply)                 # response packet
                 # reply immediately
                 if '-6' in sys.argv[1:]:                # IPv6 support
@@ -234,13 +184,22 @@ class Socks5Server(socketserver.StreamRequestHandler):
                     remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)       # turn off Nagling
                 remote.connect((SERVER, REMOTE_PORT))
-                self.send_encrypt(remote, addr_to_send)      # encrypted
-                logging.info('connecting %s:%d' % (addr, port[0]))
+
+
+
+                m = hsp.handshake(addr=addr.decode('utf-8'), port=str(port[0]))
+                msg = m.encode_protocol()
+                # self.send_encrypt(remote, addr_to_send)      # encrypted
+                self.send_encrypt(remote, msg)      # encrypted
+
+
+                logging.info('connecting %s:%d' % (addr.decode('utf-8'), port[0]))
             except socket.error as e:
                 logging.warn(e)
                 return
             self.handle_tcp(sock, remote)
         except Exception as e:
+            logging.warn(data)
             logging.warn(e)
 
 
@@ -269,7 +228,6 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
-    encrypt_table, decrypt_table = get_table(KEY)
     try:
         server = ThreadingTCPServer(('', PORT), Socks5Server)   # s.bind(('', 80)) specifies that the socket is reachable by any address the machine happens to have.
         logging.info("starting server at port %d ..." % PORT)

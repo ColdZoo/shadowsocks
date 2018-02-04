@@ -1,5 +1,6 @@
 from Crypto.Cipher import AES
 from binascii import b2a_hex, a2b_hex, b2a_base64, a2b_base64
+import logging
 
 
 class prpcrypt():
@@ -36,6 +37,8 @@ class prpcrypt():
 pc = prpcrypt(b'keyskeyskeyskeys')  # 初始化密钥
 pg = prpcrypt(b'uiwoejlkwhuyjeoi')
 
+# todo: encrypt stack
+
 
 def encrypt(data):
     return ez_encrypt(data)
@@ -50,7 +53,13 @@ def decrypt(data):
 
 
 def ez_encrypt(data):
-    tmp = bytes([p ^ 0x10 for p in data])
+    # if type(data) == type('ksljdf'):
+    #     tmp = bytes([p ^ 0x10 for p in bytes(data, encoding='utf-8')])
+    if isinstance(data, bytes):
+        tmp = bytes([p ^ 0x10 for p in data])
+    else:
+        logging.warning('illegal format')
+        return
     return tmp
 
 def ez_decrypt(data):
