@@ -56,7 +56,7 @@ def ez_encrypt(data):
     # if type(data) == type('ksljdf'):
     #     tmp = bytes([p ^ 0x10 for p in bytes(data, encoding='utf-8')])
     if isinstance(data, bytes):
-        tmp = bytes([p ^ 0x10 for p in data])
+        tmp = bytes([p ^ 0x15 for p in data])
     else:
         logging.warning('illegal format')
         return

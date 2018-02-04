@@ -180,7 +180,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
 
-    print('shadowsocks v0.9')
+    print('laddersocks v0.9')
 
     with open('config.json', 'rb') as f:
         config = json.load(f)
@@ -199,9 +199,6 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
-
-    # encrypt_table,decrypt_table = get_table(KEY)
-    # decrypt_table = str.maketrans(encrypt_table, str.maketrans('', ''))
 
 
     if '-6' in sys.argv[1:]:

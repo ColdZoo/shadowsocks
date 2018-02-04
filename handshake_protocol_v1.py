@@ -21,7 +21,7 @@ class handshake:
 
     def encode_protocol(self):
         data = {}
-        # data['chatty'] = 'love' * 100
+        data['chatty'] = 'love' * 100
         data['type'] = 'handshake'
         data['version'] = 'v1'
         data['dst_addr'] = {'type': self.addr_type, 'addr':self.addr}
