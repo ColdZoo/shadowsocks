@@ -141,7 +141,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 logging.info('connecting %s:%d' % (addr, port[0]))
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                remote.settimeout(1)
+                remote.settimeout(3)
                 remote.connect((addr, port[0]))         # connect to dst
                 remaint = data[data_pointer:]
                 if len(remaint) > 0:
