@@ -159,11 +159,11 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 remote.settimeout(3)
                 remote.connect((addr, port[0]))         # connect to dst, may fail if blocked by gfw
 
-
+                remaint = obj.remaint
                 # remaint = data[data_pointer:]
-                # if len(remaint) > 0:
-                #     logging.debug(remaint)
-                #     send_all(remote, remaint)
+                if len(remaint) > 0:
+                    logging.debug('sending_remaint_: ' + str(len(remaint)))
+                    send_all(remote, remaint)
 
 
             except Exception as e:

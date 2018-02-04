@@ -16,6 +16,7 @@ class handshake:
         self.addr_type = addr_type
         self.addr = addr
         self.port = port
+        self.remaint = b''
 
 
     def encode_protocol(self):
@@ -30,7 +31,9 @@ class handshake:
 
     def decode_protocol(self, json_str):
         try:
-            json_str = json_str.rsplit(SPLIT_STRING)[0].decode('utf-8')
+            stream = json_str.rsplit(SPLIT_STRING)
+            json_str = stream[0].decode('utf-8')
+            self.remaint = b''.join(stream[1:])
 
             data = json.loads(json_str, encoding='utf-8')
             if data['type'] != 'handshake' or data['version'] != 'v1':
