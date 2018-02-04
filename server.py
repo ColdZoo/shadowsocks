@@ -20,6 +20,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+
+#
+# from gevent import monkey
+# monkey.patch_all()
 import sys
 
 try:
@@ -29,27 +33,19 @@ except ImportError:
     gevent = None
     print(sys.stderr, 'warning: gevent not found, using threading instead')
 
+
 import socket
 import select
 import socketserver
 import struct
-import string
-import hashlib
 import os
 import json
 import logging
 import getopt
+import myCrypt
 
+import handshake_protocol_v1 as hsp
 
-def get_table(key):
-    m = hashlib.md5()
-    m.update(key)
-    s = m.digest()
-    (a, b) = struct.unpack('<QQ', s)
-    table = [c for c in string.maketrans('', '')]
-    for i in range(1, 1024):
-        table.sort(lambda x, y: int(a % (ord(x) + i) - a % (ord(y) + i)))
-    return table
 
 def send_all(sock, data):
     bytes_sent = 0
@@ -66,69 +62,155 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):  
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
+
+
+    def Mysplit(self, frame):  # return (head_rmnt, frame_list, tail_rmnt)
+        if hsp.SPLIT_STRING in frame:
+            frames = frame.split(hsp.SPLIT_STRING)
+            if len(frames) == 2:
+                frame_list = []
+            elif len(frames) >2:
+                frame_list = frames[1:-1]
+            return (frames[0], frame_list, frames[-1])
+
+        else:
+            return (frame, None, None)  # it's a whole frame
+
+
+    def Mysend(self, sock, data):
+        if data == b'':
+            return
+
+        n = hsp.bytedata()
+        try:
+            if n.decode_protocol(proto_byte=data) != 'Done':
+                logging.warning('Illegal packet, skipped')
+                return
+
+            result = send_all(sock, n.raw_data)  # send to local socket(application)
+            if result < len(n.raw_data):
+                raise Exception('failed to send all data')
+
+        except Exception as e:
+            logging.warning(e)
+
+
     def handle_tcp(self, sock, remote):
         try:
             fdset = [sock, remote]
+            sock_remaint = b''
             while True:
-                r, w, e = select.select(fdset, [], [])  # wait until ready
-                if sock in r:
-                    data = sock.recv(4096)
-                    if len(data) <= 0:
-                        break
-                    result = send_all(remote, self.decrypt(data))
-                    if result < len(data):
-                        raise Exception('failed to send all data')
-                if remote in r:
-                    data = remote.recv(4096)
-                    if len(data) <= 0:
-                        break
-                    result = send_all(sock, self.encrypt(data))
-                    if result < len(data):
-                        raise Exception('failed to send all data')
+                try:
+
+                    r, w, e = select.select(fdset, [], [])  # wait until ready
+                    if sock in r:
+                        data = sock.recv(4096)
+                        if len(data) <= 0:
+                            break
+
+                        data = self.decrypt(data)
+
+                        head_rmnt, frame_list, tail_rmnt = self.Mysplit(data)
+
+                        if hsp.SPLIT_STRING in data:
+                            frame = sock_remaint + head_rmnt
+                            for f in frame.split(hsp.SPLIT_STRING):
+                                self.Mysend(remote, f)
+
+                            for frame in frame_list:
+                                self.Mysend(remote, frame)
+                            sock_remaint = tail_rmnt
+
+
+                        else:
+                            sock_remaint += data  # very long frame
+
+
+                    if remote in r:
+                        data = remote.recv(4096)
+                        if len(data) <= 0:
+                            break
+
+                        m = hsp.bytedata(raw_data=data)
+                        data = self.encrypt(m.encode_protocol())
+
+
+                        result = send_all(sock, data)
+                        if result < len(data):
+                            raise Exception('failed to send all data')
+
+                except ConnectionResetError:
+                    logging.debug('connection has reset')
+
+
+        except Exception as e:
+            logging.debug("Accidentally exited")
+            logging.debug(e)
 
         finally:
             sock.close()
             remote.close()
 
-    def encrypt(self, data):
-        return data.translate(encrypt_table)
 
+    def encrypt(self, data):
+        return myCrypt.encrypt(data)
     def decrypt(self, data):
-        return data.translate(decrypt_table)
+        return myCrypt.decrypt(data)
 
     def handle(self):  # override method
         try:
-            
             sock = self.connection
-            addrtype = ord(self.decrypt(sock.recv(1)))      # receive addr type, unicode
-            if addrtype == 1: #ipv4
-                addr = socket.inet_ntoa(self.decrypt(self.rfile.read(4)))   # get dst addr
-            elif addrtype == 3: #domain name or ipv6
-                addr = self.decrypt(
-                    self.rfile.read(ord(self.decrypt(sock.recv(1)))))       # read 1 byte of len, then get 'len' bytes name
-            else:
-                # not support
-                logging.warn('addr_type not support')
-                return
-            # '>H' means big endian, unsigned short
-            port = struct.unpack('>H', self.decrypt(self.rfile.read(2)))    # get dst port into small endian
+            data = self.connection.recv(4096)
+            dec_data = self.decrypt(data)
+
             try:
+                obj = hsp.handshake()
+                if obj.decode_protocol(dec_data) != 'Done':
+                    raise Exception('illegal packet recvd!')
+                port = (int(obj.port), 0)
+                addr = obj.addr
+            except Exception as e:
+                logging.warning(e)
+                return
+
+
+            # got all required information
+            try:
+
+
                 logging.info('connecting %s:%d' % (addr, port[0]))
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                remote.connect((addr, port[0]))         # connect to dst
-            except socket.error as e:
+
+
+                remote.settimeout(3)
+                remote.connect((addr, port[0]))         # connect to dst, may fail if blocked by gfw
+
+                remaint = obj.remaint
+                # remaint = data[data_pointer:]
+                if len(remaint) > 0:
+                    logging.debug('sending_remaint_: ' + str(len(remaint)))
+                    data_to_send = hsp.bytedata(raw_data=remaint).encode_protocol()
+                    send_all(remote, self.encrypt(data_to_send))
+
+
+            except Exception as e:
                 # Connection refused
                 logging.warn(e)
+                # send empty message to browser
                 return
+
+            # do exchange
             self.handle_tcp(sock, remote)
         except socket.error as e:
             logging.warn(e)
 
+
+
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
 
-    print('shadowsocks v0.9')
+    print('laddersocks v0.9')
 
     with open('config.json', 'rb') as f:
         config = json.load(f)
@@ -136,6 +218,7 @@ if __name__ == '__main__':
     SERVER = config['server']
     PORT = config['server_port']
     KEY = config['password']
+    KEY = KEY.encode('utf-8')
 
     optlist, args = getopt.getopt(sys.argv[1:], 'p:k:')
     for key, value in optlist:
@@ -147,8 +230,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
-    encrypt_table = ''.join(get_table(KEY))
-    decrypt_table = string.maketrans(encrypt_table, string.maketrans('', ''))
+
     if '-6' in sys.argv[1:]:
         ThreadingTCPServer.address_family = socket.AF_INET6
     try:
