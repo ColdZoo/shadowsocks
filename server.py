@@ -20,6 +20,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+
+#
+# from gevent import monkey
+# monkey.patch_all()
 import sys
 
 try:
@@ -29,27 +33,20 @@ except ImportError:
     gevent = None
     print(sys.stderr, 'warning: gevent not found, using threading instead')
 
+
 import socket
 import select
 import socketserver
 import struct
-import string
-import hashlib
+# import string
+# import hashlib
 import os
 import json
 import logging
 import getopt
+# import six
+import myCrypt
 
-
-def get_table(key):
-    m = hashlib.md5()
-    m.update(key)
-    s = m.digest()
-    (a, b) = struct.unpack('<QQ', s)
-    table = [c for c in string.maketrans('', '')]
-    for i in range(1, 1024):
-        table.sort(lambda x, y: int(a % (ord(x) + i) - a % (ord(y) + i)))
-    return table
 
 def send_all(sock, data):
     bytes_sent = 0
@@ -66,6 +63,8 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):  
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
+
+
     def handle_tcp(self, sock, remote):
         try:
             fdset = [sock, remote]
@@ -75,52 +74,86 @@ class Socks5Server(socketserver.StreamRequestHandler):
                     data = sock.recv(4096)
                     if len(data) <= 0:
                         break
-                    result = send_all(remote, self.decrypt(data))
+                    # logging.info('send_to_remote: ' + str(data))
+                    data = self.decrypt(data)
+                    result = send_all(remote, data)
                     if result < len(data):
                         raise Exception('failed to send all data')
                 if remote in r:
                     data = remote.recv(4096)
                     if len(data) <= 0:
                         break
-                    result = send_all(sock, self.encrypt(data))
+                    # logging.info('send_to_local: ' + str(data))
+                    data = self.encrypt(data)
+                    result = send_all(sock, data)
                     if result < len(data):
                         raise Exception('failed to send all data')
+
+        except Exception as e:
+            logging.debug("Accidentally exited")
+            logging.debug(e)
 
         finally:
             sock.close()
             remote.close()
 
-    def encrypt(self, data):
-        return data.translate(encrypt_table)
 
+    def encrypt(self, data):
+        return myCrypt.encrypt(data)
     def decrypt(self, data):
-        return data.translate(decrypt_table)
+        return myCrypt.decrypt(data)
 
     def handle(self):  # override method
         try:
-            
             sock = self.connection
-            addrtype = ord(self.decrypt(sock.recv(1)))      # receive addr type, unicode
+            data = self.connection.recv(4096)
+            dec_data = self.decrypt(data)
+            data = dec_data
+
+
+            # follow self defined protocol
+            data_pointer = 0
+
+            addrtype = data[0]      # receive addr type, unicode
             if addrtype == 1: #ipv4
-                addr = socket.inet_ntoa(self.decrypt(self.rfile.read(4)))   # get dst addr
+                addr = socket.inet_ntoa(data[1:4])   # get dst addr
+                data_pointer = 5 # point to the port
             elif addrtype == 3: #domain name or ipv6
-                addr = self.decrypt(
-                    self.rfile.read(ord(self.decrypt(sock.recv(1)))))       # read 1 byte of len, then get 'len' bytes name
+                # addr = self.decrypt(
+                #     self.rfile.read(ord(self.decrypt(sock.recv(1)))))       # read 1 byte of len, then get 'len' bytes name
+                addr_len = data[1]
+                addr = data[2:2+addr_len]
+                addr = addr.decode('utf-8')
+                data_pointer = 2+addr_len
             else:
                 # not support
                 logging.warn('addr_type not support')
                 return
+
+
             # '>H' means big endian, unsigned short
-            port = struct.unpack('>H', self.decrypt(self.rfile.read(2)))    # get dst port into small endian
+            port_range = data[data_pointer:data_pointer+2]
+            data_pointer += 2                        # already got all the information we need, if it has more byte, should send them to the remote
+            port = struct.unpack('>H', port_range)
             try:
+
+
                 logging.info('connecting %s:%d' % (addr, port[0]))
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                remote.settimeout(1)
                 remote.connect((addr, port[0]))         # connect to dst
-            except socket.error as e:
+                remaint = data[data_pointer:]
+                if len(remaint) > 0:
+                    logging.debug(remaint)
+                    send_all(remote, remaint)
+            except Exception as e:
                 # Connection refused
                 logging.warn(e)
+                # send empty message to browser
                 return
+
+            # do exchange
             self.handle_tcp(sock, remote)
         except socket.error as e:
             logging.warn(e)
@@ -136,6 +169,7 @@ if __name__ == '__main__':
     SERVER = config['server']
     PORT = config['server_port']
     KEY = config['password']
+    KEY = KEY.encode('utf-8')
 
     optlist, args = getopt.getopt(sys.argv[1:], 'p:k:')
     for key, value in optlist:
@@ -147,8 +181,10 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
-    encrypt_table = ''.join(get_table(KEY))
-    decrypt_table = string.maketrans(encrypt_table, string.maketrans('', ''))
+    # encrypt_table,decrypt_table = get_table(KEY)
+    # decrypt_table = str.maketrans(encrypt_table, str.maketrans('', ''))
+
+
     if '-6' in sys.argv[1:]:
         ThreadingTCPServer.address_family = socket.AF_INET6
     try:
