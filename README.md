@@ -3,7 +3,7 @@ toysocks: TOY sucks
 
 This is a bad toy that would slow your net speed as long as hogging your CPU usage.
 
-##toy is <b>CHILD ONLY</b>: Not designed for adult
+toy is <b>CHILD ONLY</b>: Not designed for adult
 
 with cautious, have fun.
 
