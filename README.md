@@ -1,20 +1,20 @@
-shadowsocks
-===========
+toysocks: TOY sucks
+====================
 
-[![Build Status](https://travis-ci.org/clowwindy/shadowsocks.png)](https://travis-ci.org/clowwindy/shadowsocks)  
-Current version: 0.9
+This is a bad toy that would slow your net speed as long as hogging your CPU usage.
+Child only: Not designed for 18+ adult
+with cautious, have fun.
 
-shadowsocks is a lightweight tunnel proxy which can help you get through firewalls
+Based on a toy developed by clowwindy(ORIGINAL VER. 0.9). Due to some bad guys, that toy is broken.
+Many thks to clowwindy.
 
-Other ports and clients can be found [here](https://github.com/clowwindy/shadowsocks/wiki/Ports-and-Clients).
 
 usage
 -----------
-
-First, make sure you have Python 2.6 or 2.7.
+First, make sure you have Python 3.4+
 
     $ python --version
-    Python 2.6.8
+    Python 3.x.x
 
 
 Then edit `config.json`, change the following values:
@@ -22,9 +22,9 @@ Then edit `config.json`, change the following values:
     server          your server ip or hostname
     server_port     server port
     local_port      local port
-    password        a password used to encrypt transfer
+    password        password is a joke
 
-Put all the files on your server. Run `python server.py` on your server. To run it in the background, run `nohup python server.py > log &`.
+Put all the files on your server. Run `python server.py` on your server. To run it in the background, run `python server.py > log 2>&1 &`.
 
 Put all the files on your client machine. Run `python local.py` on your client machine.
 
@@ -41,7 +41,7 @@ You can use args to override settings from `config.json`.
     python local.py -s server_name -p server_port -l local_port -k password
     python server.py -p server_port -k password
 
-You may want to install gevent for better performance.
+You may want to install gevent for better performance. 
 
     $ apt-get install python-gevent
 
