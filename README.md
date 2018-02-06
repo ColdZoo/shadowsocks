@@ -2,10 +2,15 @@ toysocks: TOY sucks
 ====================
 
 This is a bad toy that would slow your net speed as long as hogging your CPU usage.
-Child only: Not designed for 18+ adult
+
+##toy is <b>CHILD ONLY</b>: Not designed for adult
+
 with cautious, have fun.
 
+
 Based on a toy developed by clowwindy(ORIGINAL VER. 0.9). Due to some bad guys, that toy is broken.
+
+
 Many thks to clowwindy.
 
 
@@ -22,7 +27,8 @@ Then edit `config.json`, change the following values:
     server          your server ip or hostname
     server_port     server port
     local_port      local port
-    password        password is a joke
+    password        password is a joke
+
 
 Put all the files on your server. Run `python server.py` on your server. To run it in the background, run `python server.py > log 2>&1 &`.
 
