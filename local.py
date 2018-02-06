@@ -21,7 +21,6 @@
 # SOFTWARE.
 
 import sys
-import six
 
 try:
     import gevent, gevent.monkey
@@ -174,9 +173,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
             sock.recv(262)                # Sock5 Verification packet
             sock.send(b"\x05\x00")         # Sock5 Response: '0x05' Version 5; '0x00' NO AUTHENTICATION REQUIRED
-            # After Authentication negotiation
-
-
 
             data = self.connection.recv(4096).strip()
 
@@ -184,7 +180,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 return
 
             mode = data[1]           # CMD == 0x01 (connect)
-
             data_to_send = {}
             data_to_send['type'] = 'handshake'
             data_to_send['version'] = 'v1'
@@ -195,15 +190,13 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
             addrtype = data[3]       # indicate destination address type
             ptr = 4   # next to read index
-            addr_to_send = bytes([addrtype])   # bytes only works for unsigned one byte number!!!!
+
 
             if addrtype == 1:             # IPv4
                 ip_range = data[ptr:4+ptr]
                 addr = socket.inet_ntoa(data[ptr:4+ptr])  # get dst addr
 
                 ptr += 4
-
-                addr_to_send += ip_range
                 data_to_send['dst_addr'] = {'type':'ip', 'addr': addr.decode('utf-8')}
 
             elif addrtype == 3:           # FQDN (Fully Qualified Domain Name)
@@ -225,9 +218,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
                 data_to_send['dst_addr'] = {'type':'url', 'addr':addr.decode('utf-8')}
 
-
-                addr_to_send += byte_len_
-                addr_to_send += addr
             else:
                 logging.warn('addr_type not support')
                 # not support
@@ -237,12 +227,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
             port = struct.unpack('>H', addr_port)       # prase the big endian port number. Note: The result is a tuple even if it contains exactly one item.
 
             data_to_send['dst_port'] = port[0]
-
-            addr_to_send += addr_port
             try:
-                reply = b"\x05\x00\x00\x01"              # VER REP RSV ATYP
-                reply += socket.inet_aton('0.0.0.0') + struct.pack(">H", 8339)  # listening on 2222 on all addresses of the machine, including the loopback(127.0.0.1)
-                self.wfile.write(reply)                 # response packet
+
                 # reply immediately
                 if '-6' in sys.argv[1:]:                # IPv6 support
                     remote = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
@@ -251,21 +237,25 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)       # turn off Nagling
                 remote.connect((SERVER, REMOTE_PORT))
 
-
+                reply = b"\x05\x00\x00\x01"  # VER REP RSV ATYP
+                reply += socket.inet_aton('0.0.0.0') + struct.pack(">H", 1030)  # listening on 2222 on all addresses of the machine, including the loopback(127.0.0.1)
+                self.wfile.write(reply)  # response packet
 
                 m = hsp.handshake(addr=addr.decode('utf-8'), port=str(port[0]))
                 msg = m.encode_protocol()
-                # self.send_encrypt(remote, addr_to_send)      # encrypted
-                self.send_encrypt(remote, msg)      # encrypted
+                self.send_encrypt(remote, msg)      # encrypted handshake
 
+                logging.info('requested: %s:%d' % (addr.decode('utf-8'), port[0]))
 
-                logging.info('connecting %s:%d' % (addr.decode('utf-8'), port[0]))
             except socket.error as e:
+                reply = b"\x05\x04\x00\x01" # host unreachable
+                self.wfile.write(reply)  # response packet
                 logging.warn(e)
                 return
 
 
             self.handle_tcp(sock, remote)
+
 
 
         except Exception as e:
