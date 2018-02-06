@@ -58,6 +58,7 @@ def send_all(sock, data):
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):   # Multiple inheritance
     allow_reuse_address = True
+    request_queue_size = 1000
 
 
 class Socks5Server(socketserver.StreamRequestHandler):

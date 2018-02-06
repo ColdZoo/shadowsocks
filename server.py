@@ -37,7 +37,6 @@ except ImportError:
 import socket
 import select
 import socketserver
-import struct
 import os
 import json
 import logging
@@ -59,6 +58,7 @@ def send_all(sock, data):
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):  # socket server polls to exit
     allow_reuse_address = True
+    request_queue_size = 1000
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
@@ -80,7 +80,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
     def Mysend(self, sock, data):
         if data == b'':
             return
-
         n = hsp.bytedata()
         try:
             if n.decode_protocol(proto_byte=data) != 'Done':
@@ -151,7 +150,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
             sock.close()
             remote.close()
 
-
     def encrypt(self, data):
         return myCrypt.encrypt(data)
     def decrypt(self, data):
@@ -183,7 +181,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
 
-                remote.settimeout(3)
+                remote.settimeout(10)
                 remote.connect((addr, port[0]))         # connect to dst, may fail if blocked by gfw
 
                 remaint = obj.remaint
