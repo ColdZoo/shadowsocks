@@ -39,8 +39,8 @@ import json
 import logging
 import getopt
 import myCrypt
-
 import handshake_protocol_v1 as hsp
+
 
 
 
@@ -120,8 +120,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
                         if result < len(data):
                             raise Exception('failed to send all data')
 
-
-
                     if remote in r:                             # remote socket(proxy) ready for reading
                         data = remote.recv(4096)
                         if len(data) <= 0:
@@ -174,7 +172,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
             sock.recv(262)                # Sock5 Verification packet
             sock.send(b"\x05\x00")         # Sock5 Response: '0x05' Version 5; '0x00' NO AUTHENTICATION REQUIRED
 
-            data = self.connection.recv(4096).strip()
+            data = sock.recv(4096).strip()
 
             if data == b'':
                 return
@@ -185,6 +183,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
             data_to_send['version'] = 'v1'
             if mode != 1:
                 logging.warn('mode != 1')
+                sock.close()
                 return
 
 
@@ -220,6 +219,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
             else:
                 logging.warn('addr_type not support')
+                sock.close()
                 # not support
                 return
             addr_port = data[ptr: 2+ptr]
@@ -237,13 +237,30 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)       # turn off Nagling
                 remote.connect((SERVER, REMOTE_PORT))
 
-                reply = b"\x05\x00\x00\x01"  # VER REP RSV ATYP
-                reply += socket.inet_aton('0.0.0.0') + struct.pack(">H", 1030)  # listening on 2222 on all addresses of the machine, including the loopback(127.0.0.1)
-                self.wfile.write(reply)  # response packet
+                # connected to the server, should complete authentication and after the peer has established connection to host.
+                # then should let browser send other data
 
                 m = hsp.handshake(addr=addr.decode('utf-8'), port=str(port[0]))
                 msg = m.encode_protocol()
-                self.send_encrypt(remote, msg)      # encrypted handshake
+                self.send_encrypt(remote, msg)  # encrypted handshake
+
+                confirm_msg = remote.recv(4096)
+
+                if b'0x15the_login_invalid_or_the_url_unreachable' == confirm_msg:
+                    logging.error('Error: 1. The url is unreachable for the proxy 2. Or encrypt method mismatch.')
+                    sock.close()
+                    return
+
+
+                # tell the browser we are ready to proxy for you.
+
+                reply = b"\x05\x00\x00\x01"  # VER REP RSV ATYP
+                # socks5 protocol needs this. its a must
+                reply += socket.inet_aton('192.168.34.34') + struct.pack(">H", 1030)
+                self.wfile.write(reply)  # response packet
+
+
+
 
                 logging.info('requested: %s:%d' % (addr.decode('utf-8'), port[0]))
 
@@ -251,6 +268,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 reply = b"\x05\x04\x00\x01" # host unreachable
                 self.wfile.write(reply)  # response packet
                 logging.warn(e)
+                sock.close()
                 return
 
 
@@ -265,7 +283,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
-    print('laddersocks v0.9')
+    print('toysocks v0.9')
 
     with open('config.json', 'rb') as f:
         config = json.load(f)
