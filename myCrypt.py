@@ -1,7 +1,7 @@
 from Crypto.Cipher import AES
 from binascii import b2a_hex, a2b_hex, b2a_base64, a2b_base64
 import logging
-
+import base64
 
 class prpcrypt():
     def __init__(self, key):
@@ -20,16 +20,17 @@ class prpcrypt():
             add = 0
         text = text + (b'\0' * add)
         self.ciphertext = cryptor.encrypt(text)
+        # base64.encode(self.ciphertext)
         # 因为AES加密时候得到的字符串不一定是ascii字符集的，输出到终端或者保存时候可能存在问题
         # 所以这里统一把加密后的字符串转化为16进制字符串
         # return b2a_base64(self.ciphertext)
-        return self.ciphertext
+        return str(base64.encodebytes(self.ciphertext), encoding='utf-8')
 
     # 解密后，去掉补足的空格用strip() 去掉
     def decrypt(self, text):
         cryptor = AES.new(self.key, self.mode, self.key)
-        # plain_text = cryptor.decrypt(a2b_base64(text))
-        plain_text = cryptor.decrypt(text)
+        plain_text = cryptor.decrypt(base64.decodebytes(text.encode(encoding='utf-8')))
+        # plain_text = cryptor.decrypt(text)
         return plain_text.rstrip(b'\0')
 
 
@@ -60,16 +61,8 @@ def ez_encrypt(data):
         return
     return tmp
 
+
 def ez_decrypt(data):
     return ez_encrypt(data)
 
-if __name__ == '__main__':
-    e = ez_encrypt(b'\x03\x0ewww.google.com\x01\xbb')
-    d = ez_decrypt(e)
-    print(d)
-    e = encrypt(b"00000000000000000000000000")
-    d = decrypt(e)
-    print(d)
-    e = ez_encrypt(bytes([0b0, 0b1, 0b1]))
-    d = ez_decrypt(e)
-    print(d)
+

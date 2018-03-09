@@ -64,7 +64,6 @@ class bytedata:
         data['raw_data'] = b2a_hex(self.raw_data).decode('utf-8')
         return json.dumps(data, ensure_ascii=False, indent=True).encode('utf-8') + SPLIT_STRING
 
-
     def decode_protocol(self, proto_byte):
         if proto_byte == b'':
             self.raw_data = proto_byte
