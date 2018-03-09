@@ -228,15 +228,13 @@ if __name__ == '__main__':
 
     SERVER = config['server']
     PORT = config['server_port']
-    KEY = config['password']
-    KEY = KEY.encode('utf-8')
+
 
     optlist, args = getopt.getopt(sys.argv[1:], 'p:k:')
     for key, value in optlist:
         if key == '-p':
             PORT = int(value)
-        elif key == '-k':
-            KEY = value
+
 
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
