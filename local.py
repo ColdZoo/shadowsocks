@@ -21,7 +21,6 @@
 # SOFTWARE.
 
 import sys
-import six
 
 try:
     import gevent, gevent.monkey
@@ -40,8 +39,8 @@ import json
 import logging
 import getopt
 import myCrypt
-
 import handshake_protocol_v1 as hsp
+
 
 
 
@@ -58,6 +57,7 @@ def send_all(sock, data):
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):   # Multiple inheritance
     allow_reuse_address = True
+    request_queue_size = 1000
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
@@ -120,8 +120,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
                         if result < len(data):
                             raise Exception('failed to send all data')
 
-
-
                     if remote in r:                             # remote socket(proxy) ready for reading
                         data = remote.recv(4096)
                         if len(data) <= 0:
@@ -173,36 +171,31 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
             sock.recv(262)                # Sock5 Verification packet
             sock.send(b"\x05\x00")         # Sock5 Response: '0x05' Version 5; '0x00' NO AUTHENTICATION REQUIRED
-            # After Authentication negotiation
 
-
-
-            data = self.connection.recv(4096).strip()
+            data = sock.recv(4096).strip()
 
             if data == b'':
                 return
 
             mode = data[1]           # CMD == 0x01 (connect)
-
             data_to_send = {}
             data_to_send['type'] = 'handshake'
             data_to_send['version'] = 'v1'
             if mode != 1:
                 logging.warn('mode != 1')
+                sock.close()
                 return
 
 
             addrtype = data[3]       # indicate destination address type
             ptr = 4   # next to read index
-            addr_to_send = bytes([addrtype])   # bytes only works for unsigned one byte number!!!!
+
 
             if addrtype == 1:             # IPv4
                 ip_range = data[ptr:4+ptr]
                 addr = socket.inet_ntoa(data[ptr:4+ptr])  # get dst addr
 
                 ptr += 4
-
-                addr_to_send += ip_range
                 data_to_send['dst_addr'] = {'type':'ip', 'addr': addr.decode('utf-8')}
 
             elif addrtype == 3:           # FQDN (Fully Qualified Domain Name)
@@ -224,11 +217,9 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
                 data_to_send['dst_addr'] = {'type':'url', 'addr':addr.decode('utf-8')}
 
-
-                addr_to_send += byte_len_
-                addr_to_send += addr
             else:
                 logging.warn('addr_type not support')
+                sock.close()
                 # not support
                 return
             addr_port = data[ptr: 2+ptr]
@@ -236,12 +227,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
             port = struct.unpack('>H', addr_port)       # prase the big endian port number. Note: The result is a tuple even if it contains exactly one item.
 
             data_to_send['dst_port'] = port[0]
-
-            addr_to_send += addr_port
             try:
-                reply = b"\x05\x00\x00\x01"              # VER REP RSV ATYP
-                reply += socket.inet_aton('0.0.0.0') + struct.pack(">H", 8339)  # listening on 2222 on all addresses of the machine, including the loopback(127.0.0.1)
-                self.wfile.write(reply)                 # response packet
+
                 # reply immediately
                 if '-6' in sys.argv[1:]:                # IPv6 support
                     remote = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
@@ -250,21 +237,43 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)       # turn off Nagling
                 remote.connect((SERVER, REMOTE_PORT))
 
-
+                # connected to the server, should complete authentication and after the peer has established connection to host.
+                # then should let browser send other data
 
                 m = hsp.handshake(addr=addr.decode('utf-8'), port=str(port[0]))
                 msg = m.encode_protocol()
-                # self.send_encrypt(remote, addr_to_send)      # encrypted
-                self.send_encrypt(remote, msg)      # encrypted
+                self.send_encrypt(remote, msg)  # encrypted handshake
+
+                confirm_msg = remote.recv(4096)
+
+                if b'0x15the_login_invalid_or_the_url_unreachable' == confirm_msg:
+                    logging.error('Error: 1. The url is unreachable for the proxy 2. Or encrypt method mismatch.')
+                    sock.close()
+                    return
 
 
-                logging.info('connecting %s:%d' % (addr.decode('utf-8'), port[0]))
+                # tell the browser we are ready to proxy for you.
+
+                reply = b"\x05\x00\x00\x01"  # VER REP RSV ATYP
+                # socks5 protocol needs this. its a must
+                reply += socket.inet_aton('192.168.34.34') + struct.pack(">H", 1030)
+                self.wfile.write(reply)  # response packet
+
+
+
+
+                logging.info('requested: %s:%d' % (addr.decode('utf-8'), port[0]))
+
             except socket.error as e:
+                reply = b"\x05\x04\x00\x01" # host unreachable
+                self.wfile.write(reply)  # response packet
                 logging.warn(e)
+                sock.close()
                 return
 
 
             self.handle_tcp(sock, remote)
+
 
 
         except Exception as e:
@@ -274,7 +283,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
-    print('laddersocks v0.9')
+    print('toysocks v0.9')
 
     with open('config.json', 'rb') as f:
         config = json.load(f)

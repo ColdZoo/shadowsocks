@@ -37,7 +37,6 @@ except ImportError:
 import socket
 import select
 import socketserver
-import struct
 import os
 import json
 import logging
@@ -59,6 +58,7 @@ def send_all(sock, data):
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):  # socket server polls to exit
     allow_reuse_address = True
+    request_queue_size = 1000
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
@@ -80,7 +80,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
     def Mysend(self, sock, data):
         if data == b'':
             return
-
         n = hsp.bytedata()
         try:
             if n.decode_protocol(proto_byte=data) != 'Done':
@@ -151,11 +150,14 @@ class Socks5Server(socketserver.StreamRequestHandler):
             sock.close()
             remote.close()
 
-
     def encrypt(self, data):
         return myCrypt.encrypt(data)
+
     def decrypt(self, data):
         return myCrypt.decrypt(data)
+
+    def refuse_serve(self):
+        self.wfile.write(b'0x15the_login_invalid_or_the_url_unreachable')
 
     def handle(self):  # override method
         try:
@@ -170,6 +172,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 port = (int(obj.port), 0)
                 addr = obj.addr
             except Exception as e:
+                self.refuse_serve()
                 logging.warning(e)
                 return
 
@@ -178,24 +181,32 @@ class Socks5Server(socketserver.StreamRequestHandler):
             try:
 
 
+
                 logging.info('connecting %s:%d' % (addr, port[0]))
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
 
-                remote.settimeout(3)
+                remote.settimeout(10)
                 remote.connect((addr, port[0]))         # connect to dst, may fail if blocked by gfw
 
-                remaint = obj.remaint
-                # remaint = data[data_pointer:]
-                if len(remaint) > 0:
-                    logging.debug('sending_remaint_: ' + str(len(remaint)))
-                    data_to_send = hsp.bytedata(raw_data=remaint).encode_protocol()
-                    send_all(remote, self.encrypt(data_to_send))
+                # if connect successfully, should sent a random message to unblock the client.
+                send_all(sock, self.encrypt(hsp.handshake(addr='www.mars.mars', port='76767').encode_protocol()))
+
+
+                # due to the client will block until we reply, there should not have remaint bytes
+
+                # remaint = obj.remaint
+                # if len(remaint) > 0:
+                #     logging.debug('sending_remaint_: ' + str(len(remaint)))
+                #     data_to_send = hsp.bytedata(raw_data=remaint).encode_protocol()
+                #     send_all(remote, self.encrypt(data_to_send))
+
 
 
             except Exception as e:
                 # Connection refused
+                self.refuse_serve()
                 logging.warn(e)
                 # send empty message to browser
                 return
@@ -210,22 +221,20 @@ class Socks5Server(socketserver.StreamRequestHandler):
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
 
-    print('laddersocks v0.9')
+    print('toysocks v0.9')
 
     with open('config.json', 'rb') as f:
         config = json.load(f)
 
     SERVER = config['server']
     PORT = config['server_port']
-    KEY = config['password']
-    KEY = KEY.encode('utf-8')
+
 
     optlist, args = getopt.getopt(sys.argv[1:], 'p:k:')
     for key, value in optlist:
         if key == '-p':
             PORT = int(value)
-        elif key == '-k':
-            KEY = value
+
 
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')

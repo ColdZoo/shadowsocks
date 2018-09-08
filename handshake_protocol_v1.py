@@ -22,7 +22,7 @@ class handshake:
 
     def encode_protocol(self):
         data = {}
-        data['chatty'] = 'love' * 500
+        data['chatty'] = 'love' * 100
         data['type'] = 'handshake'
         data['version'] = 'v1'
         data['dst_addr'] = {'type': self.addr_type, 'addr':self.addr}
@@ -63,7 +63,6 @@ class bytedata:
         data['auth'] = self.auth
         data['raw_data'] = b2a_hex(self.raw_data).decode('utf-8')
         return json.dumps(data, ensure_ascii=False, indent=True).encode('utf-8') + SPLIT_STRING
-
 
     def decode_protocol(self, proto_byte):
         if proto_byte == b'':
