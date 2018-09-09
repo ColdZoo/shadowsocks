@@ -358,12 +358,15 @@ if __name__ == '__main__':
                 print('proxy server down')
                 proxyserver = new_proxyserver
                 proxyserver.allow_reuse_address = True
-                logging.info("starting server at port %d ..." % PORT)
+                print("starting server at port %d ..." % PORT)
                 t2 = WorkingThread(proxyserver)
                 t2.start()
                 print('proxy server started')
                 print('config updated!')
                 print(config)
+                with open('config.json', 'w') as f:
+                    json.dump(config, f)
+                    print('config save to file, done!')
                 WebsocketServer.send_message(server, client, json.dumps({"ret_code": 0}))
 
         except Exception as e:
@@ -394,7 +397,7 @@ if __name__ == '__main__':
         ThreadingTCPServer.allow_reuse_address=True
         proxyserver = ThreadingTCPServer(('', PORT), Socks5Server)   # s.bind(('', 80)) specifies that the socket is reachable by any address the machine happens to have.
         proxyserver.allow_reuse_address = True
-        logging.info("starting server at port %d ..." % PORT)
+        print("starting server at port %d ..." % PORT)
         # threading._start_new_thread(lambda x=1: server.serve_forever())
         t1 = WorkingThread(proxyserver)
         t1.start()
