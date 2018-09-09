@@ -18,6 +18,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+
+#{"type":"SET","conf":{"server": "159.89.164.42", "server_port": 13246, "local_port": 1032, "password": "lkjdk", "timeout": 600}}
+#{"type":"GET"}
+
 import sys
 
 try:
@@ -41,7 +45,7 @@ import handshake_protocol_v1 as hsp
 import threading
 import time
 import queue
-
+from websocket_server import WebsocketServer
 
 
 
@@ -62,8 +66,6 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):  
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
-
-
     def Mysplit(self, frame):  # return (head_rmnt, frame_list, tail_rmnt)
         if hsp.SPLIT_STRING in frame:
             frames = frame.split(hsp.SPLIT_STRING)
@@ -287,7 +289,7 @@ class WorkingThread(threading.Thread):
         self.server = server
 
     def run(self):
-        server.serve_forever()
+        proxyserver.serve_forever()
 
 
 if __name__ == '__main__':
@@ -296,6 +298,7 @@ if __name__ == '__main__':
 
     with open('config.json', 'rb') as f:
         config = json.load(f)
+
     SERVER = config['server']
     REMOTE_PORT = config['server_port']
     PORT = config['local_port']
@@ -315,18 +318,98 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
+
+    # Called when a client sends a message
+    def message_received(client, server, message):
+        global config, SERVER,REMOTE_PORT,PORT,KEY,proxyserver,t1
+        print("Client(%d) said: %s" % (client['id'], message))
+        try:
+            msg = json.loads(message)
+            if msg['type'] == "GET":
+                response = json.dumps(config)
+                WebsocketServer.send_message(server, client, response)
+                print('config sent')
+
+            if msg['type'] == "SET":
+                if config == msg["conf"]:
+                    print('新老配置相同')
+                    WebsocketServer.send_message(server, client, json.dumps({"ret_code": 0}))
+                    return
+
+
+
+                ThreadingTCPServer.allow_reuse_address = True
+                try:
+                    # 尝试在新端口上启动服务
+                    new_proxyserver = ThreadingTCPServer(('', msg["conf"]['local_port']),
+                                                 Socks5Server)
+                except Exception as e:
+                    print(e)
+                    WebsocketServer.send_message(server,client, json.dumps({"ret_code":-1}))
+                    return
+                config = msg["conf"]
+                print(config)
+                SERVER = config['server']
+                REMOTE_PORT = config['server_port']
+                PORT = config['local_port']
+                KEY = config['password']
+
+                proxyserver.shutdown()
+                print('proxy server down')
+                proxyserver = new_proxyserver
+                proxyserver.allow_reuse_address = True
+                logging.info("starting server at port %d ..." % PORT)
+                t2 = WorkingThread(proxyserver)
+                t2.start()
+                print('proxy server started')
+                print('config updated!')
+                print(config)
+                WebsocketServer.send_message(server, client, json.dumps({"ret_code": 0}))
+
+        except Exception as e:
+            print(e)
+            pass
+
+
+    class WSThread(threading.Thread):
+        def __init__(self, server):
+            threading.Thread.__init__(self)
+            self.server = server
+
+        def run(self):
+            self.server.run_forever()
+
+
+    cfg_server = WebsocketServer(12758)
+    cfg_server.set_fn_message_received(message_received)
+    t_ws = WSThread(cfg_server)
+    t_ws.start()
+    # print('SLEEP')
+    # time.sleep(10)
+    # cfg_server.shutdown()
+    # t_ws.join()
+    # print('SHUTDOWN')
+
     try:
-        server = ThreadingTCPServer(('', PORT), Socks5Server)   # s.bind(('', 80)) specifies that the socket is reachable by any address the machine happens to have.
+        ThreadingTCPServer.allow_reuse_address=True
+        proxyserver = ThreadingTCPServer(('', PORT), Socks5Server)   # s.bind(('', 80)) specifies that the socket is reachable by any address the machine happens to have.
+        proxyserver.allow_reuse_address = True
         logging.info("starting server at port %d ..." % PORT)
         # threading._start_new_thread(lambda x=1: server.serve_forever())
-        t1 = WorkingThread(server)
+        t1 = WorkingThread(proxyserver)
         t1.start()
+
         print('what\'s next?')
-        time.sleep(10)
-        server.shutdown()
-        print('server is down')
+        time.sleep(500)
+
+
+        proxyserver.shutdown()
+        cfg_server.shutdown()
+        print('both servers down')
 
         # server.shutdown()
     except socket.error as e:
         logging.error(e)
+    except Exception as e:
+        print(e)
 
