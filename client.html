@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>websocket</title>
+</head>
+<body>
+<script type="text/javascript">
+var ws;
+function startWS() {
+    console.log('start once again');
+    var port = document.getElementById("port").value
+    ws = new WebSocket("ws://127.0.0.1:" + port);
+    //ws = new WebSocket("ws://echo.websocket.org");
+    ws.onopen =  function (msg) {
+        console.log('webSocket opened');
+    };
+    ws.onmessage = function (message) {
+        console.log('receive message : ' + message.data);
+    };
+    ws.onerror = function (error) {
+        console.log('error :' + error.name + error.number);
+    };
+
+    ws.onclose =  function () {
+        console.log('webSocket closed');
+    };
+}
+function sendMessage () {
+    console.log("sending a message");
+    var msg = document.getElementById("msg").value
+
+    ws.send(msg);
+}
+</script>
+
+<button onclick="startWS()">createWebsocket</button><br>
+<button onclick="sendMessage()">sendMessage</button>
+<input id="port" value="12758"/>
+<br/>
+<input id="msg" width="500" value={"type":"GET"}/>
+</body>
+</html>
