@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ToySocks</title>
+  <link rel="stylesheet" type="text/css" href="css/style.css">
+  <meta charset="utf-8">
+</head>
+<body>
+<div class="titleview"><div class="logo"></div></div>
+<div class="configview">
+  <div class="configform">
+    <div class="title">服务器配置 :</div>
+    <div class="itemline">
+      <div class="text">服务器</div> <input type="text" class="conf_server">
+    </div>
+    <div class="itemline">
+      <div class="text">端口号</div> <input type="text" class="conf_serverport">
+    </div>    
+
+    <div class="title">客户端配置 :</div>
+    <div class="itemline">
+      <div class="text">端口号</div> <input type="text" class="conf_localport">
+    </div>
+    <div class="itemline">
+      <div class="text">密&nbsp;&nbsp;&nbsp;码</div> <input type="password" class="conf_psw" value="********">
+    </div>  
+    <div class="itemline">
+      <div class="text">超&nbsp;&nbsp;&nbsp;时</div> <input type="text" class="conf_timeout">
+    </div>  
+
+    <div class="itemline">
+        <button type="button" class="submit-primary" onclick="Work.changeConfig()">修改配置</button>
+    </div>
+  </div>  
+</div>
+<div class="footer"><span>Copyright © ToySocks, Inc. All Rights Reserved.</span></div>
+</body>
+<script type="text/javascript" src="js/d3.min.js"></script>
+<script type="text/javascript" src="js/jquery.min.js"></script>
+<script type="text/javascript" src="js/webchannel.js"></script>
+<script type="text/javascript" src="js/plug-in.js"></script>
+
+<script type="text/javascript" src="js/network.js"></script>
+<script type="text/javascript" src="js/main.js"></script>
+</html>
