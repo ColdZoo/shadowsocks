@@ -196,7 +196,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 addr = socket.inet_ntoa(data[ptr:4+ptr])  # get dst addr
 
                 ptr += 4
-                data_to_send['dst_addr'] = {'type':'ip', 'addr': addr.decode('utf-8')}
+                data_to_send['dst_addr'] = {'type':'ip', 'addr': addr}
 
             elif addrtype == 3:           # FQDN (Fully Qualified Domain Name)
 
@@ -215,7 +215,9 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
                 byte_len_ = bytes([addr_len])   # 0~255
 
-                data_to_send['dst_addr'] = {'type':'url', 'addr':addr.decode('utf-8')}
+                addr = addr.decode('utf-8')  # covert bytes to string
+
+                data_to_send['dst_addr'] = {'type':'url', 'addr':addr}
 
             else:
                 logging.warn('addr_type not support')
@@ -240,7 +242,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 # connected to the server, should complete authentication and after the peer has established connection to host.
                 # then should let browser send other data
 
-                m = hsp.handshake(addr=addr.decode('utf-8'), port=str(port[0]))
+                m = hsp.handshake(addr=addr, port=str(port[0]))
                 msg = m.encode_protocol()
                 self.send_encrypt(remote, msg)  # encrypted handshake
 
@@ -262,7 +264,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
 
 
-                logging.info('requested: %s:%d' % (addr.decode('utf-8'), port[0]))
+                logging.info('requested: %s:%d' % (addr, port[0]))
 
             except socket.error as e:
                 reply = b"\x05\x04\x00\x01" # host unreachable
@@ -277,8 +279,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
 
         except Exception as e:
-            logging.warn(data)
-            logging.warn(e)
+            logging.warning(data,e)
+            logging.warning(e)
 
 
 if __name__ == '__main__':

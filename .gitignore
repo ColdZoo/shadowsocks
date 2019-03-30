@@ -32,3 +32,5 @@ config.json
 .idea/
 
 config2\.json
+
+*.out
