@@ -45,9 +45,9 @@ import handshake_protocol_v1 as hsp
 import threading
 import time
 import queue
-from websocket_server import WebsocketServer
 
-
+from websocket_server.webchannel import *
+from local_config import ConfigModel
 
 def send_all(sock, data):
     bytes_sent = 0
@@ -293,18 +293,47 @@ class WorkingThread(threading.Thread):
     def run(self):
         proxyserver.serve_forever()
 
+def onConfigChanged(config):
+    global SERVER,REMOTE_PORT,PORT,KEY,proxyserver,localConfig
 
-if __name__ == '__main__':
-    os.chdir(os.path.dirname(__file__) or '.')
-    print('toysocks v0.9')
-
-    with open('config.json', 'rb') as f:
-        config = json.load(f)
+    ThreadingTCPServer.allow_reuse_address = True
+    try:
+        # 尝试在新端口上启动服务
+        new_proxyserver = ThreadingTCPServer(('', config['local_port']),
+                                     Socks5Server)
+    except Exception as e:
+        print(e)
+        localConfig.onMessage('proxyserver reopen error!')
+        return
 
     SERVER = config['server']
     REMOTE_PORT = config['server_port']
     PORT = config['local_port']
     KEY = config['password']
+
+    proxyserver.shutdown()
+    print('proxy server down')
+    proxyserver = new_proxyserver
+    proxyserver.allow_reuse_address = True
+    print("starting server at port %d ..." % PORT)
+    t2 = WorkingThread(proxyserver)
+    t2.start()
+    print('proxy server started')
+    print('config updated!')
+    localConfig.onMessage('Server restart success!')
+
+if __name__ == '__main__':
+    os.chdir(os.path.dirname(__file__) or '.')
+    print('toysocks v0.9')
+
+    localConfig = ConfigModel(onConfigChanged)
+    g_channel.registObject("config", localConfig)
+    g_channel.runserver(12758, host='localhost')
+
+    SERVER = localConfig.config['server']
+    REMOTE_PORT = localConfig.config['server_port']
+    PORT = localConfig.config['local_port']
+    KEY = localConfig.config['password']
 
     optlist, args = getopt.getopt(sys.argv[1:], 's:p:k:l:')
     for key, value in optlist:
@@ -320,62 +349,6 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
-
-    # Called when a client sends a message
-    def message_received(client, server, message):
-        global config, SERVER,REMOTE_PORT,PORT,KEY,proxyserver,t1
-        print("Client(%d) said: %s" % (client['id'], message))
-        try:
-            msg = json.loads(message)
-            if msg['type'] == "GET":
-                response = json.dumps(config)
-                WebsocketServer.send_message(server, client, response)
-                print('config sent')
-
-            if msg['type'] == "SET":
-                if config == msg["conf"]:
-                    print('新老配置相同')
-                    WebsocketServer.send_message(server, client, json.dumps({"ret_code": 0}))
-                    return
-
-
-
-                ThreadingTCPServer.allow_reuse_address = True
-                try:
-                    # 尝试在新端口上启动服务
-                    new_proxyserver = ThreadingTCPServer(('', msg["conf"]['local_port']),
-                                                 Socks5Server)
-                except Exception as e:
-                    print(e)
-                    WebsocketServer.send_message(server,client, json.dumps({"ret_code":-1}))
-                    return
-                config = msg["conf"]
-                print(config)
-                SERVER = config['server']
-                REMOTE_PORT = config['server_port']
-                PORT = config['local_port']
-                KEY = config['password']
-
-                proxyserver.shutdown()
-                print('proxy server down')
-                proxyserver = new_proxyserver
-                proxyserver.allow_reuse_address = True
-                print("starting server at port %d ..." % PORT)
-                t2 = WorkingThread(proxyserver)
-                t2.start()
-                print('proxy server started')
-                print('config updated!')
-                print(config)
-                with open('config.json', 'w') as f:
-                    json.dump(config, f)
-                    print('config save to file, done!')
-                WebsocketServer.send_message(server, client, json.dumps({"ret_code": 0}))
-
-        except Exception as e:
-            print(e)
-            pass
-
-
     class WSThread(threading.Thread):
         def __init__(self, server):
             threading.Thread.__init__(self)
@@ -385,15 +358,8 @@ if __name__ == '__main__':
             self.server.run_forever()
 
 
-    cfg_server = WebsocketServer(12758)
-    cfg_server.set_fn_message_received(message_received)
-    t_ws = WSThread(cfg_server)
+    t_ws = WSThread(g_channel.server)
     t_ws.start()
-    # print('SLEEP')
-    # time.sleep(10)
-    # cfg_server.shutdown()
-    # t_ws.join()
-    # print('SHUTDOWN')
 
     try:
         ThreadingTCPServer.allow_reuse_address=True
