@@ -58,7 +58,7 @@ def send_all(sock, data):
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):  # socket server polls to exit
     allow_reuse_address = True
-    request_queue_size = 1000
+    request_queue_size = 100000
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
@@ -182,7 +182,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
 
 
-                logging.info('connecting %s:%d' % (addr, port[0]))
+                # logging.info('connecting %s:%d' % (addr, port[0]))
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 

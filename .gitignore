@@ -34,3 +34,5 @@ config.json
 config2\.json
 
 *.out
+
+config\.json\.bgl

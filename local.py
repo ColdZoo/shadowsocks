@@ -57,7 +57,7 @@ def send_all(sock, data):
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):   # Multiple inheritance
     allow_reuse_address = True
-    request_queue_size = 1000
+    request_queue_size = 100000
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
@@ -264,7 +264,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
 
 
-                logging.info('requested: %s:%d' % (addr, port[0]))
+                # logging.info('requested: %s:%d' % (addr, port[0]))
 
             except socket.error as e:
                 reply = b"\x05\x04\x00\x01" # host unreachable
