@@ -141,11 +141,10 @@ class Socks5Server(socketserver.StreamRequestHandler):
                     break
 
                 except BrokenPipeError:
-                    logging.debug('broken pipe')
+                    logging.debug('broken pipe ' + str(remote.getpeername()))
                     break
 
-                except socket.timeout as e:
-                    logging.debug('connection time out')
+                except socket.error as exc:
                     break
 
 
@@ -169,6 +168,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
     def handle(self):  # override method
         try:
             sock = self.connection
+            sock.settimeout(10)
             data = sock.recv(4096)
             dec_data = self.decrypt(data)
 
