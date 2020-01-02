@@ -316,7 +316,7 @@ if __name__ == '__main__':
         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
     try:
-        server = ThreadingTCPServer(('', PORT), Socks5Server)
+        server = ThreadingTCPServer(('0.0.0.0', PORT), Socks5Server)
         logging.info("starting server at port %d ..." % PORT)
         server.serve_forever()
     except socket.error as e:
