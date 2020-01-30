@@ -33,12 +33,14 @@ config.json
 
 config2\.json
 
+*.out
+
+config\.json\.bgl
+
 \.DS_Store
 
-config\.json\.bak
+*.bak
 
-config\.json\.korea
+*.korea
 
-config\.json\.la
-
-*.out
+*.la

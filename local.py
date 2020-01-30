@@ -57,7 +57,7 @@ def send_all(sock, data):
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):   # Multiple inheritance
     allow_reuse_address = True
-    request_queue_size = 1000
+    request_queue_size = 100000
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
@@ -220,6 +220,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
                 data_to_send['dst_addr'] = {'type':'url', 'addr':str_addr}
 
+                data_to_send['dst_addr'] = {'type':'url', 'addr':addr}
+
             else:
                 logging.warning('addr_type not support')
                 sock.close()
@@ -290,14 +292,9 @@ if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
     print('toysocks v0.9')
 
-    with open('config.json', 'rb') as f:
-        config = json.load(f)
-    SERVER = config['server']
-    REMOTE_PORT = config['server_port']
-    PORT = config['local_port']
-    KEY = config['password']
+    FILE_NAME = 'config.json'
 
-    optlist, args = getopt.getopt(sys.argv[1:], 's:p:k:l:')
+    optlist, args = getopt.getopt(sys.argv[1:], 's:p:k:l:f:')
     for key, value in optlist:
         if key == '-p':
             REMOTE_PORT = int(value)
@@ -307,12 +304,24 @@ if __name__ == '__main__':
             PORT = int(value)
         elif key == '-s':
             SERVER = value
+        elif key == "-f":
+            FILE_NAME = value
+
+    print("Config file is: " + FILE_NAME)
+    with open(FILE_NAME, 'rb') as f:
+        config = json.load(f)
+    SERVER = config['server']
+    REMOTE_PORT = int(config['server_port'])
+    PORT = int(config['local_port'])
+    KEY = config['password']
+
+
 
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
     try:
-        server = ThreadingTCPServer(('', PORT), Socks5Server)   # s.bind(('', 80)) specifies that the socket is reachable by any address the machine happens to have.
+        server = ThreadingTCPServer(('0.0.0.0', PORT), Socks5Server)
         logging.info("starting server at port %d ..." % PORT)
         server.serve_forever()
     except socket.error as e:
