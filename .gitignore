@@ -32,3 +32,13 @@ config.json
 .idea/
 
 config2\.json
+
+\.DS_Store
+
+config\.json\.bak
+
+config\.json\.korea
+
+config\.json\.la
+
+*.out
