@@ -1,8 +1,0 @@
- {
-    "server":"0.0.0.0",
-    "server_port":443,
-    "password":"pwd",
-    "timeout":600,
-    "encrypt_method":"AES",
-    "encrypt_parameter":""
-}

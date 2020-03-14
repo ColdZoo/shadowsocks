@@ -46,3 +46,7 @@ config\.json\.bgl
 *.la
 
 server_config.json
+
+config.json
+
+*.json
