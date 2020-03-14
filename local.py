@@ -262,7 +262,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
-    print('toysocks v0.9')
+    print('toysocks v1.0')
 
     FILE_NAME = 'config.json'
 
