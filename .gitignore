@@ -28,7 +28,7 @@ pip-log.txt
 
 #runtime log
 log
-config.json
+#config.json
 .idea/
 
 config2\.json
