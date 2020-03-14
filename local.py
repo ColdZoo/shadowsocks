@@ -19,7 +19,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
+import random
 import sys
 import socket
 import select
@@ -31,13 +31,30 @@ import logging
 import getopt
 import myCrypt
 import handshake_protocol_v1 as hsp
+import threading
+
 try:
     import gevent
     import gevent.monkey
+
     gevent.monkey.patch_all(dns=gevent.version_info[0] >= 1)
 except ImportError:
     gevent = None
     print(sys.stderr, 'warning: gevent not found, using threading instead')
+
+# 用来执行心跳的线程
+pulse_thread = None
+
+
+def pulse(ip, port):
+    remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    remote.connect((ip, port))
+    send_all(remote, encrypt(hsp.handshake(addr='hello', port=str(port)).encode_protocol()))
+
+    global pulse_thread
+    pulse_thread = threading.Timer(5, pulse, (ip, port))
+    pulse_thread.start()
 
 
 def send_all(sock, data):
@@ -208,8 +225,10 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 m = hsp.handshake(addr=str_addr, port=str(port[0]))
                 msg = m.encode_protocol()
                 send_encrypt(remote, msg)  # encrypted handshake
-                logging.debug("will try blocked receiving now!!")
+                rnd = random.randrange(1, 1000)
+                logging.debug(f"{rnd} will try blocked receiving now!!")
                 confirm_msg = remote.recv(4096)
+                logging.debug(f"{rnd} blocked receiving done")
 
                 if b'0x15the_login_invalid_or_the_url_unreachable' == confirm_msg:
                     logging.error('Error: 1. The url is unreachable for the proxy 2. Or encrypt method mismatch.')
@@ -266,6 +285,9 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
+
+    # 启动心跳任务
+    pulse(SERVER, REMOTE_PORT + 1)
 
     try:
         server = ThreadingTCPServer(('0.0.0.0', PORT), Socks5Server)

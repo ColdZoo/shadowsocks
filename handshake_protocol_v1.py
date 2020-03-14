@@ -5,6 +5,7 @@ from json import JSONDecodeError
 
 SPLIT_STRING = b'inj\0x0yt\0x0gether'
 
+
 class handshake:
     # returns byte type
 
@@ -12,20 +13,18 @@ class handshake:
     addr = ''
     port = '80'
 
-
     def __init__(self, addr_type='ip', addr='', port='80'):
         self.addr_type = addr_type
         self.addr = addr
         self.port = port
         self.remaint = b''
 
-
     def encode_protocol(self):
         data = {}
         data['chatty'] = 'love' * 100
         data['type'] = 'handshake'
         data['version'] = 'v1'
-        data['dst_addr'] = {'type': self.addr_type, 'addr':self.addr}
+        data['dst_addr'] = {'type': self.addr_type, 'addr': self.addr}
         data['dst_port'] = self.port
         rr = json.dumps(data, ensure_ascii=False, indent=True).encode('utf-8')
         return rr + SPLIT_STRING
@@ -47,6 +46,7 @@ class handshake:
         except:
             return
 
+
 class bytedata:
     # returns bytes type of data
 
@@ -56,7 +56,6 @@ class bytedata:
     def __init__(self, auth='', raw_data=b''):
         self.auth = auth
         self.raw_data = raw_data
-
 
     def encode_protocol(self):
         data = {}
@@ -88,5 +87,3 @@ class bytedata:
         except Exception as e:
             logging.debug(e)
             return
-
-

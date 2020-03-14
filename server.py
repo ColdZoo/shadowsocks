@@ -45,6 +45,9 @@ import myCrypt
 
 import handshake_protocol_v1 as hsp
 
+white_list = []
+black_list = []
+
 
 def send_all(sock, data):
     bytes_sent = 0
@@ -62,35 +65,76 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):  
     request_queue_size = 100000
 
 
-class Socks5Server(socketserver.StreamRequestHandler):
+def Mysplit(frame):  # return (head_rmnt, frame_list, tail_rmnt)
+    if hsp.SPLIT_STRING in frame:
+        frames = frame.split(hsp.SPLIT_STRING)
+        if len(frames) == 2:
+            frame_list = []
+        elif len(frames) > 2:
+            frame_list = frames[1:-1]
+        return (frames[0], frame_list, frames[-1])
 
-    def Mysplit(self, frame):  # return (head_rmnt, frame_list, tail_rmnt)
-        if hsp.SPLIT_STRING in frame:
-            frames = frame.split(hsp.SPLIT_STRING)
-            if len(frames) == 2:
-                frame_list = []
-            elif len(frames) > 2:
-                frame_list = frames[1:-1]
-            return (frames[0], frame_list, frames[-1])
+    else:
+        return (frame, None, None)  # it's a whole frame
 
-        else:
-            return (frame, None, None)  # it's a whole frame
 
-    def Mysend(self, sock, data):
-        if data == b'':
+def Mysend(sock, data):
+    if data == b'':
+        return
+    n = hsp.bytedata()
+    try:
+        if n.decode_protocol(proto_byte=data) != 'Done':
+            logging.warning('Illegal packet, skipped')
             return
-        n = hsp.bytedata()
-        try:
-            if n.decode_protocol(proto_byte=data) != 'Done':
-                logging.warning('Illegal packet, skipped')
+
+        result = send_all(sock, n.raw_data)  # send to local socket(application)
+        if result < len(n.raw_data):
+            raise Exception('failed to send all data')
+
+    except Exception as e:
+        logging.warning(e)
+
+
+def encrypt(data):
+    return myCrypt.encrypt(data)
+
+
+def decrypt(data):
+    return myCrypt.decrypt(data)
+
+
+class HeartBeatServer(socketserver.StreamRequestHandler):
+    def handle(self):
+        sock = self.connection
+        sock.settimeout(10)
+        data = sock.recv(4096)
+        dec_data = decrypt(data)
+
+        obj = hsp.handshake()
+        peer_ip, port = sock.getpeername()
+        # 收到请求时如果是白名单中的ip, 则不需要再校验
+        if peer_ip in white_list:
+            send_all(sock, encrypt(hsp.handshake(addr='hello', port=str(port)).encode_protocol()))
+        else:
+            # 收到请求若是黑名单中的, 则直接拒绝
+            if peer_ip in black_list:
                 return
+            else:
+                try:
+                    if obj.decode_protocol(dec_data) != 'Done':
+                        # 加入黑名单
+                        black_list.append(peer_ip)
+                    else:
+                        # 加入白名单
+                        white_list.append(peer_ip)
+                        black_list.remove(peer_ip)
+                        send_all(sock, encrypt(hsp.handshake(addr='hello', port=str(port)).encode_protocol()))
+                except Exception:
+                    # 加入黑名单
+                    black_list.append(peer_ip)
 
-            result = send_all(sock, n.raw_data)  # send to local socket(application)
-            if result < len(n.raw_data):
-                raise Exception('failed to send all data')
 
-        except Exception as e:
-            logging.warning(e)
+class Socks5Server(socketserver.StreamRequestHandler):
 
     def handle_tcp(self, sock, remote):
         try:
@@ -104,17 +148,17 @@ class Socks5Server(socketserver.StreamRequestHandler):
                         if len(data) <= 0:
                             break
 
-                        data = self.decrypt(data)
+                        data = decrypt(data)
 
-                        head_rmnt, frame_list, tail_rmnt = self.Mysplit(data)
+                        head_rmnt, frame_list, tail_rmnt = Mysplit(data)
 
                         if hsp.SPLIT_STRING in data:
                             frame = sock_remaint + head_rmnt
                             for f in frame.split(hsp.SPLIT_STRING):
-                                self.Mysend(remote, f)
+                                Mysend(remote, f)
 
                             for frame in frame_list:
-                                self.Mysend(remote, frame)
+                                Mysend(remote, frame)
                             sock_remaint = tail_rmnt
 
                         else:
@@ -126,7 +170,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                             break
 
                         m = hsp.bytedata(raw_data=data)
-                        data = self.encrypt(m.encode_protocol())
+                        data = encrypt(m.encode_protocol())
 
                         result = send_all(sock, data)
                         if result < len(data):
@@ -156,12 +200,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
             sock.close()
             remote.close()
 
-    def encrypt(self, data):
-        return myCrypt.encrypt(data)
-
-    def decrypt(self, data):
-        return myCrypt.decrypt(data)
-
     def refuse_serve(self):
         self.wfile.write(b'0x15the_login_invalid_or_the_url_unreachable')
 
@@ -170,8 +208,12 @@ class Socks5Server(socketserver.StreamRequestHandler):
             sock = self.connection
             sock.settimeout(10)
             data = sock.recv(4096)
-            dec_data = self.decrypt(data)
+            dec_data = decrypt(data)
 
+            peer_ip, port = sock.getpeername()
+            if peer_ip in black_list or peer_ip not in white_list:
+                # 若已经在黑名单上, 或者不在白名单里, 则直接拒绝代理
+                return
             try:
                 obj = hsp.handshake()
                 if obj.decode_protocol(dec_data) != 'Done':
@@ -184,8 +226,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
             except Exception as e:
                 self.refuse_serve()
-                logging.warning("185")
-                logging.warning(e)
                 return
 
             # got all required information
@@ -197,7 +237,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 remote.connect((addr, port[0]))  # connect to dst, may fail if blocked by gfw
 
                 # if connect successfully, should sent a random message to unblock the client.
-                send_all(sock, self.encrypt(hsp.handshake(addr=addr, port=str(port[0])).encode_protocol()))
+                send_all(sock, encrypt(hsp.handshake(addr=addr, port=str(port[0])).encode_protocol()))
 
 
             except ConnectionRefusedError:
@@ -219,7 +259,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
         except socket.error as e:
             logging.warning(e)
 
-
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
     print('toysocks v0.9')
@@ -240,6 +279,13 @@ if __name__ == '__main__':
 
     if '-6' in sys.argv[1:]:
         ThreadingTCPServer.address_family = socket.AF_INET6
+
+    # 启动心跳server
+    pulse_server = ThreadingTCPServer(('', PORT+1), HeartBeatServer)
+    logging.info(f'starting heart beat server at port {PORT+1}')
+    pulse_server.serve_forever()
+
+    # 启动代理server
     try:
         server = ThreadingTCPServer(('', PORT), Socks5Server)
         logging.info("starting server at port %d ..." % PORT)
