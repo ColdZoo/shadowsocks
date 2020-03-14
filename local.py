@@ -47,10 +47,14 @@ pulse_thread = None
 
 
 def pulse(ip, port):
-    remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-    remote.connect((ip, port))
-    send_all(remote, encrypt(hsp.handshake(addr='hello', port=str(port)).encode_protocol()))
+    try:
+        remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        remote.connect((ip, port))
+        logging.info(f"sending heartbeat to {ip}:{port}")
+        send_all(remote, encrypt(hsp.handshake(addr='hello', port=str(port)).encode_protocol()))
+    except Exception as e:
+        pass
 
     global pulse_thread
     pulse_thread = threading.Timer(5, pulse, (ip, port))

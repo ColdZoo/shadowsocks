@@ -44,3 +44,5 @@ config\.json\.bgl
 *.korea
 
 *.la
+
+server_config.json
