@@ -21,15 +21,6 @@
 # SOFTWARE.
 
 import sys
-
-try:
-    import gevent, gevent.monkey
-    gevent.monkey.patch_all(dns=gevent.version_info[0]>=1)
-except ImportError:
-    gevent = None
-    print(sys.stderr, 'warning: gevent not found, using threading instead')
-
-
 import socket
 import select
 import socketserver
@@ -40,8 +31,13 @@ import logging
 import getopt
 import myCrypt
 import handshake_protocol_v1 as hsp
-
-
+try:
+    import gevent
+    import gevent.monkey
+    gevent.monkey.patch_all(dns=gevent.version_info[0] >= 1)
+except ImportError:
+    gevent = None
+    print(sys.stderr, 'warning: gevent not found, using threading instead')
 
 
 def send_all(sock, data):
@@ -55,28 +51,37 @@ def send_all(sock, data):
             return bytes_sent
 
 
-class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):   # Multiple inheritance
+class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True
     request_queue_size = 100000
 
 
+def encrypt(data):
+    return myCrypt.encrypt(data)
+
+
+def decrypt(data):
+    return myCrypt.decrypt(data)
+
+
+def send_encrypt(sock, data):
+    sock.send(encrypt(data))
+
+
 class Socks5Server(socketserver.StreamRequestHandler):
-
-
     def Mysplit(self, frame):  # return (head_rmnt, frame_list, tail_rmnt)
         if hsp.SPLIT_STRING in frame:
             frames = frame.split(hsp.SPLIT_STRING)
             if len(frames) == 2:
                 frame_list = []
-            elif len(frames) >2:
+            elif len(frames) > 2:
                 frame_list = frames[1:-1]
             return (frames[0], frame_list, frames[-1])
 
         else:
             return (frame, None, None)  # it's a whole frame
 
-
-    def Mysend(self,sock, data):
+    def Mysend(self, sock, data):
         if not isinstance(data, bytes):
             pass
         if data == b'':
@@ -95,37 +100,33 @@ class Socks5Server(socketserver.StreamRequestHandler):
         except Exception as e:
             logging.warning(e)
 
+    ''' RequestHandlerClass Definition '''
 
-    ''' RequesHandlerClass Definition '''
     def handle_tcp(self, sock, remote):
         try:
             fdset = [sock, remote]
-
             remote_remaint = b''
 
             while True:
                 try:
-                    r, w, e = select.select(fdset, [], [])      # use select I/O multiplexing model
-                    if sock in r:                               # if local socket is ready for reading
-
+                    r, w, e = select.select(fdset, [], [])  # use select I/O multiplexing model
+                    if sock in r:  # if local socket is ready for reading
                         data = sock.recv(4096)
-                        if len(data) <= 0:                      # received all data
+                        if len(data) <= 0:  # received all data
                             break
-
                         m = hsp.bytedata(raw_data=data)
-
-                        data = self.encrypt(m.encode_protocol())
-                        result = send_all(remote, data)   # send data after encrypting
+                        data = encrypt(m.encode_protocol())
+                        result = send_all(remote, data)  # send data after encrypting
 
                         if result < len(data):
                             raise Exception('failed to send all data')
 
-                    if remote in r:                             # remote socket(proxy) ready for reading
+                    if remote in r:  # remote socket(proxy) ready for reading
                         data = remote.recv(4096)
                         if len(data) <= 0:
                             break
 
-                        data = self.decrypt(data)
+                        data = decrypt(data)
                         head_rmnt, frame_list, tail_rmnt = self.Mysplit(data)
 
                         if hsp.SPLIT_STRING in data:
@@ -137,13 +138,11 @@ class Socks5Server(socketserver.StreamRequestHandler):
                                 self.Mysend(sock, frame)
                             remote_remaint = tail_rmnt
 
-
                         else:
                             remote_remaint += data
                 except ConnectionResetError:
                     logging.debug('connection has reset')
                     continue
-
 
         except Exception as e:
             logging.debug(e)
@@ -151,104 +150,65 @@ class Socks5Server(socketserver.StreamRequestHandler):
             sock.close()
             remote.close()
 
-    def encrypt(self, data):
-        return myCrypt.encrypt(data)
-    def decrypt(self, data):
-        return myCrypt.decrypt(data)
-
-    def send_encrypt(self, sock, data):
-        enc = self.encrypt(data)
-        dec = self.decrypt(enc)
-        # logging.info('sending: ' + str(enc))
-        sock.send(self.encrypt(data))
-
-
     def handle(self):
         try:
-            sock = self.connection        # local socket [127.1:port]
+            sock = self.connection  # local socket [127.1:port]
 
             # follow SOCKS5 protocol
 
-            sock.recv(262)                # Sock5 Verification packet
-            sock.send(b"\x05\x00")         # Sock5 Response: '0x05' Version 5; '0x00' NO AUTHENTICATION REQUIRED
-
+            sock.recv(262)  # Sock5 Verification packet
+            sock.send(b"\x05\x00")  # Sock5 Response: '0x05' Version 5; '0x00' NO AUTHENTICATION REQUIRED
             data = sock.recv(4096).strip()
 
             if data == b'':
                 return
 
-            mode = data[1]           # CMD == 0x01 (connect)
-            data_to_send = {}
-            data_to_send['type'] = 'handshake'
-            data_to_send['version'] = 'v1'
+            mode = data[1]  # CMD == 0x01 (connect)
+            data_to_send = {'type': 'handshake', 'version': 'v1'}
             if mode != 1:
                 logging.warning('mode != 1')
                 sock.close()
                 return
 
+            addrtype = data[3]  # indicate destination address type
+            ptr = 4  # next to read index
 
-            addrtype = data[3]       # indicate destination address type
-            ptr = 4   # next to read index
-
-
-            str_addr = ''
-
-            if addrtype == 1:             # IPv4
-                ip_range = data[ptr:4+ptr]
-                addr = socket.inet_ntoa(data[ptr:4+ptr])  # get dst addr
+            if addrtype == 1:  # IPv4
+                ip_range = data[ptr:4 + ptr]
+                addr = socket.inet_ntoa(data[ptr:4 + ptr])  # get dst addr
                 str_addr = addr
                 ptr += 4
-                data_to_send['dst_addr'] = {'type':'ip', 'addr': str_addr}
-
-            elif addrtype == 3:           # FQDN (Fully Qualified Domain Name)
-
-                addr_len = int(data[ptr])          # Domain name's Length
+            elif addrtype == 3:  # FQDN (Fully Qualified Domain Name)
+                addr_len = int(data[ptr])  # Domain name's Length
                 ptr += 1
-
-                try:
-                    addr = data[ptr:ptr+addr_len]
-                    str_addr = addr.decode('utf-8')
-
-                except:
-                    raise Exception('addr_len too long')
-
+                addr = data[ptr:ptr + addr_len]
+                str_addr = addr.decode('utf-8')
                 ptr += addr_len
-
-                addr_len = min(addr_len, 255)    # in case the url length is too long
-
-                byte_len_ = bytes([addr_len])   # 0~255
-
-                data_to_send['dst_addr'] = {'type':'url', 'addr':str_addr}
-
-                data_to_send['dst_addr'] = {'type':'url', 'addr':addr}
-
             else:
+                # not support
                 logging.warning('addr_type not support')
                 sock.close()
-                # not support
                 return
-            addr_port = data[ptr: 2+ptr]
-            # addr_to_send += addr_port                   # addr_to_send = ATYP + [Length] + dst addr/domain name + port
-            port = struct.unpack('>H', addr_port)       # prase the big endian port number. Note: The result is a tuple even if it contains exactly one item.
-
+            addr_port = data[ptr: 2 + ptr]
+            # Parse the big endian port number. Note: The result is a tuple even if it contains exactly one item.
+            port = struct.unpack('>H', addr_port)
             data_to_send['dst_port'] = port[0]
             try:
-
-                # reply immediately
-                if '-6' in sys.argv[1:]:                # IPv6 support
+                if '-6' in sys.argv[1:]:  # IPv6 support
                     remote = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
                 else:
                     remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)       # turn off Nagling
+                remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # turn off Nagling
                 remote.connect((SERVER, REMOTE_PORT))
 
-                # connected to the server, should complete authentication and after the peer has established connection to host.
+                # connected to the server, should complete authentication and after the peer has established connection
+                # to host.
                 # then should let browser send other data
 
                 m = hsp.handshake(addr=str_addr, port=str(port[0]))
                 msg = m.encode_protocol()
-                self.send_encrypt(remote, msg)  # encrypted handshake
-
+                send_encrypt(remote, msg)  # encrypted handshake
+                logging.debug("will try blocked receiving now!!")
                 confirm_msg = remote.recv(4096)
 
                 if b'0x15the_login_invalid_or_the_url_unreachable' == confirm_msg:
@@ -256,36 +216,25 @@ class Socks5Server(socketserver.StreamRequestHandler):
                     sock.close()
                     return
 
-
                 # tell the browser we are ready to proxy for you.
-
                 reply = b"\x05\x00\x00\x01"  # VER REP RSV ATYP
                 # socks5 protocol needs this. its a must
                 reply += socket.inet_aton('192.168.34.34') + struct.pack(">H", 1030)
                 self.wfile.write(reply)  # response packet
-
-
-
-
                 logging.info('requested: %s:%d' % (str_addr, port[0]))
 
-            except socket.error as e:
-                reply = b"\x05\x04\x00\x01" # host unreachable
+            except socket.error as es:
+                reply = b"\x05\x04\x00\x01"  # host unreachable
                 self.wfile.write(reply)  # response packet
-                logging.warning(e)
+                logging.warning(es)
                 sock.close()
                 return
 
-
             self.handle_tcp(sock, remote)
 
-
-
-        except Exception as e:
-            logging.warning(e.__traceback__.tb_lineno)  # 打印行号
-            logging.warning(e)
-            if data is not None:
-               logging.warning(data)
+        except Exception as es:
+            logging.warning(es.__traceback__.tb_lineno)  # 打印行号
+            logging.warning(es)
 
 
 if __name__ == '__main__':
@@ -315,10 +264,8 @@ if __name__ == '__main__':
     PORT = int(config['local_port'])
     KEY = config['password']
 
-
-
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
+                        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
     try:
         server = ThreadingTCPServer(('0.0.0.0', PORT), Socks5Server)
@@ -326,4 +273,3 @@ if __name__ == '__main__':
         server.serve_forever()
     except socket.error as e:
         logging.error(e)
-
