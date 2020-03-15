@@ -141,6 +141,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
     def handle_tcp(self, sock, remote):
         try:
             fdset = [sock, remote]
+            # sock: 服务端
+            # remote: web服务器
             sock_remaint = b''
             while True:
                 try:
@@ -151,28 +153,14 @@ class Socks5Server(socketserver.StreamRequestHandler):
                             break
 
                         data = decrypt(data)
-
-                        head_rmnt, frame_list, tail_rmnt = Mysplit(data)
-
-                        if hsp.SPLIT_STRING in data:
-                            frame = sock_remaint + head_rmnt
-                            for f in frame.split(hsp.SPLIT_STRING):
-                                Mysend(remote, f)
-
-                            for frame in frame_list:
-                                Mysend(remote, frame)
-                            sock_remaint = tail_rmnt
-
-                        else:
-                            sock_remaint += data  # very long frame
+                        send_all(remote, data)
 
                     if remote in r:
                         data = remote.recv(4096)
                         if len(data) <= 0:
                             break
 
-                        m = hsp.bytedata(raw_data=data)
-                        data = encrypt(m.encode_protocol())
+                        data = encrypt(data)
 
                         result = send_all(sock, data)
                         if result < len(data):
@@ -192,7 +180,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
                 except socket.error as exc:
                     break
-
 
         except Exception as e:
             logging.debug("Transfer Accidentally exited")

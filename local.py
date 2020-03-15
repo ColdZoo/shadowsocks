@@ -135,8 +135,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                         data = sock.recv(4096)
                         if len(data) <= 0:  # received all data
                             break
-                        m = hsp.bytedata(raw_data=data)
-                        data = encrypt(m.encode_protocol())
+                        data = encrypt(data)
                         result = send_all(remote, data)  # send data after encrypting
 
                         if result < len(data):
@@ -148,19 +147,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
                             break
 
                         data = decrypt(data)
-                        head_rmnt, frame_list, tail_rmnt = self.Mysplit(data)
+                        send_all(sock, data)
 
-                        if hsp.SPLIT_STRING in data:
-                            frame_tmp = remote_remaint + head_rmnt
-                            for f in frame_tmp.split(hsp.SPLIT_STRING):
-                                self.Mysend(sock, f)
-
-                            for frame in frame_list:
-                                self.Mysend(sock, frame)
-                            remote_remaint = tail_rmnt
-
-                        else:
-                            remote_remaint += data
                 except ConnectionResetError:
                     logging.debug('connection has reset')
                     continue
