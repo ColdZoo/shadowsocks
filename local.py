@@ -51,7 +51,7 @@ def pulse(ip, port):
         remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         remote.connect((ip, port))
-        logging.info(f"sending heartbeat to {ip}:{port}")
+        # logging.info(f"sending heartbeat to {ip}:{port}")
         send_all(remote, encrypt(hsp.handshake(addr='hello', port=str(port)).encode_protocol()))
     except Exception as e:
         pass
@@ -217,10 +217,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 m = hsp.handshake(addr=str_addr, port=str(port[0]))
                 msg = m.encode_protocol()
                 send_encrypt(remote, msg)  # encrypted handshake
-                rnd = random.randrange(1, 1000)
-                logging.debug(f"{rnd} will try blocked receiving now!!")
+                # 这里会阻塞
                 confirm_msg = remote.recv(4096)
-                logging.debug(f"{rnd} blocked receiving done")
 
                 if b'0x15the_login_invalid_or_the_url_unreachable' == confirm_msg:
                     logging.error('Error: 1. The url is unreachable for the proxy 2. Or encrypt method mismatch.')

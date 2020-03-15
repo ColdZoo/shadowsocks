@@ -112,11 +112,11 @@ class HeartBeatServer(socketserver.StreamRequestHandler):
         dec_data = decrypt(data)
         obj = hsp.handshake()
         peer_ip, port = sock.getpeername()
-        logging.info(f"received heartbeat from {peer_ip}, white_list:{white_list}, black_list:{black_list}")
         # 收到请求时如果是白名单中的ip, 则不需要再校验
         if peer_ip in white_list:
             pass
         else:
+            logging.info(f"received heartbeat from {peer_ip}, white_list:{white_list}, black_list:{black_list}")
             # 收到请求若是黑名单中的, 则直接拒绝
             if peer_ip in black_list:
                 logging.info(f"rejected black listed heartbeat {peer_ip}")
