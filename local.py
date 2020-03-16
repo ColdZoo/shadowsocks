@@ -64,7 +64,7 @@ def pulse(ip, port):
         logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
 
     global pulse_thread
-    pulse_thread = threading.Timer(50, pulse, (ip, port))
+    pulse_thread = threading.Timer(5, pulse, (ip, port))
     pulse_thread.start()
 
 
