@@ -134,11 +134,11 @@ class HeartBeatServer(socketserver.StreamRequestHandler):
                         black_list.append(peer_ip)
                         logging.info(
                             f"after {peer_ip}, white_list:{white_list}, black_list:{black_list}")
-
                     else:
                         # 加入白名单
                         white_list.append(peer_ip)
-                        black_list.remove(peer_ip)
+                        if peer_ip in black_list:
+                            black_list.remove(peer_ip)
                         logging.info(f"after {peer_ip}, white_list:{white_list}, black_list:{black_list}")
                 except Exception as e:
                     # 加入黑名单
