@@ -131,7 +131,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
     ''' RequestHandlerClass Definition '''
 
-    def handle_tcp(self, sock, remote):
+    def handle_tcp(self, sock, remote, addr):
         try:
             fdset = [sock, remote]
 
@@ -139,7 +139,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 try:
                     r, w, e = select.select(fdset, [], [])  # use select I/O multiplexing model
                     if sock in r:  # if local socket is ready for reading
-                        data = sock.recv(4096)
+                        data = sock.recv(65536)
                         if len(data) <= 0:  # received all data
                             break
                         data = encrypt(data)
@@ -149,7 +149,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
                             raise Exception('failed to send all data')
 
                     if remote in r:  # remote socket(proxy) ready for reading
-                        data = remote.recv(4096)
+                        data = remote.recv(65536)
+                        # logging.info(f"[remote]got data from: {addr} length is {len(data)}")
                         if len(data) <= 0:
                             break
 
@@ -167,6 +168,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
         finally:
             sock.close()
             remote.close()
+            logging.info(f'connection closed.{addr}')
+
 
 
     def handle(self):
@@ -232,7 +235,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
                 if b'0x15the_login_invalid_or_the_url_unreachable' == confirm_msg:
                     logging.error('Error: 1. The url is unreachable for the proxy 2. Or encrypt method mismatch.')
-                    sock.closeE()
+                    sock.close()
                     return
 
                 # tell the browser we are ready to proxy for you.
@@ -241,6 +244,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 reply += socket.inet_aton('192.168.34.34') + struct.pack(">H", 1030)
                 self.wfile.write(reply)  # response packet
                 logging.info('requested: %s:%d' % (str_addr, port[0]))
+
             except ConnectionRefusedError:
                 logging.warning("cannnot talk to server")
 
@@ -255,7 +259,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 sock.close()
                 return
 
-            self.handle_tcp(sock, remote)
+            self.handle_tcp(sock, remote, str_addr)
 
         except Exception as es:
             logging.warning(es)

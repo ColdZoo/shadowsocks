@@ -126,7 +126,7 @@ class HeartBeatServer(socketserver.StreamRequestHandler):
             # 收到请求若是黑名单中的, 则直接拒绝
             if peer_ip in black_list:
                 logging.info(f"rejected black listed heartbeat {peer_ip}")
-                return
+                raise Exception(f"rejected black listed heartbeat {peer_ip}")
             else:
                 try:
                     if obj.decode_protocol(dec_data) != 'Done':
@@ -141,27 +141,28 @@ class HeartBeatServer(socketserver.StreamRequestHandler):
                             black_list.remove(peer_ip)
                         logging.info(f"after {peer_ip}, white_list:{white_list}, black_list:{black_list}")
                 except Exception as e:
-                    # 加入黑名单
                     logging.error(e)
                     exc_type, exc_obj, exc_tb = sys.exc_info()
                     fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                     logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
                     pass
+                finally:
+                    sock.close()
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
 
-    def handle_tcp(self, sock, remote):
+    def handle_tcp(self, sock, remote, addr):
         try:
             fdset = [sock, remote]
             # sock: 服务端
             # remote: web服务器
-            sock_remaint = b''
             while True:
                 try:
                     r, w, e = select.select(fdset, [], [])  # wait until ready
                     if sock in r:
-                        data = sock.recv(4096)
+                        data = sock.recv(65536)
+                        # logging.info(f"got data from client: {addr} length: {len(data)}")
                         if len(data) <= 0:
                             break
 
@@ -169,7 +170,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
                         send_all(remote, data)
 
                     if remote in r:
-                        data = remote.recv(4096)
+                        data = remote.recv(65536)
+                        # logging.info(f"got data from web server: {addr} length:{len(data)}")
                         if len(data) <= 0:
                             break
 
@@ -180,18 +182,21 @@ class Socks5Server(socketserver.StreamRequestHandler):
                             raise Exception('failed to send all data')
 
                 except ConnectionResetError:
-                    logging.debug('connection has reset ' + str(remote.getpeername()))
+                    logging.debug('connection has reset ' + addr)
                     break
 
                 except ConnectionRefusedError:
-                    logging.debug('connection refused: ' + str(remote.getpeername()))
+                    logging.debug('connection refused: ' + addr)
                     break
 
                 except BrokenPipeError:
-                    logging.debug('broken pipe ' + str(remote.getpeername()))
+                    logging.debug('broken pipe ' + addr)
                     break
 
-                except socket.error as exc:
+                except socket.error:
+                    exc_type, exc_obj, exc_tb = sys.exc_info()
+                    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                    logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
                     break
 
         except Exception as e:
@@ -204,6 +209,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
         finally:
             sock.close()
             remote.close()
+            logging.info(f'released resource! {addr}')
+
 
     def refuse_serve(self):
         self.wfile.write(b'0x15the_login_invalid_or_the_url_unreachable')
@@ -214,44 +221,44 @@ class Socks5Server(socketserver.StreamRequestHandler):
             sock.settimeout(10)
             data = sock.recv(4096)
             dec_data = decrypt(data)
+            remote = None
 
-            peer_ip, port = sock.getpeername()
+            peer_ip, peer_port = sock.getpeername()
             if peer_ip in black_list or peer_ip not in white_list:
                 # 若已经在黑名单上, 或者不在白名单里, 则直接拒绝代理
                 logging.warning(f"[Socks5Server]rejected a request from {peer_ip}")
-                return
+                raise Exception('illegal packet recvd!')
             try:
                 obj = hsp.handshake()
                 if obj.decode_protocol(dec_data) != 'Done':
                     raise Exception('illegal packet recvd!')
-                port = (int(obj.port), 0)
+                port = int(obj.port)
                 addr = obj.addr
-
-            except ConnectionRefusedError:
-                logging.debug('connection refused: ' + addr)
 
             except Exception as e:
                 self.refuse_serve()
                 exc_type, exc_obj, exc_tb = sys.exc_info()
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                 logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
-                return
+                raise Exception("malformed handshake!")
 
             # got all required information
             try:
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-                remote.settimeout(10)
-                remote.connect((addr, port[0]))  # connect to dst, may fail if blocked by gfw
+                remote.settimeout(5)
+                remote.connect((addr, port))  # connect to dst, may fail if blocked by gfw
 
                 # if connect successfully, should sent a random message to unblock the client.
-                send_all(sock, encrypt(hsp.handshake(addr=addr, port=str(port[0])).encode_protocol()))
+                send_all(sock, encrypt(hsp.handshake(addr=addr, port=str(port)).encode_protocol()))
+                # do exchange
+                self.handle_tcp(sock, remote, str(addr))
 
             except ConnectionRefusedError:
                 logging.debug('connection refused: ' + str(addr))
 
-            except socket.timeout as e:
+            except socket.timeout:
                 logging.debug('TimeOut while connecting to: ' + str(addr))
 
             except Exception as e:
@@ -261,13 +268,23 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 exc_type, exc_obj, exc_tb = sys.exc_info()
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                 logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
-                return
                 # send empty message to browser
 
-            # do exchange
-            self.handle_tcp(sock, remote)
-        except socket.error as e:
+        except Exception as e:
             logging.warning(e)
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
+        finally:
+            try:
+                sock.close()
+                remote.close()
+                logging.info(f"[handle]released resource {addr}")
+            except:
+                exc_type, exc_obj, exc_tb = sys.exc_info()
+                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
+                pass
 
 
 def run_server(dst_server):
@@ -276,7 +293,7 @@ def run_server(dst_server):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
-    print('toysocks v0.9')
+    print('toysocks v1.0')
 
     with open('server_config.json', 'rb') as f:
         config = json.load(f)
