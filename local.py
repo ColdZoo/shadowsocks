@@ -165,19 +165,13 @@ class Socks5Server(socketserver.StreamRequestHandler):
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
             logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
-        finally:
-            sock.close()
-            remote.close()
-            logging.info(f'connection closed.{addr}')
-
-
 
     def handle(self):
         try:
+            remote = None
+            addr = ""
             sock = self.connection  # local socket [127.1:port]
-
             # follow SOCKS5 protocol
-
             sock.recv(262)  # Sock5 Verification packet
             sock.send(b"\x05\x00")  # Sock5 Response: '0x05' Version 5; '0x00' NO AUTHENTICATION REQUIRED
             data = sock.recv(4096).strip()
@@ -266,6 +260,12 @@ class Socks5Server(socketserver.StreamRequestHandler):
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
             logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
+        finally:
+            if sock is not None:
+                sock.close()
+            if remote is not None:
+                remote.close()
+            logging.info(f'connection closed.{addr}')
 
 
 if __name__ == '__main__':

@@ -49,6 +49,26 @@ import threading
 white_list = []
 black_list = []
 
+REMOTE_SOCKET_COUNT = 0
+LOCAL_SOCKET_COUNT = 0
+HEARTBEAT_SOCKET_COUNT = 0
+
+monitor_thread = None
+
+
+def monitor():
+    try:
+        logging.info(f"#Sockets: Remote:{REMOTE_SOCKET_COUNT} Local:{LOCAL_SOCKET_COUNT} Heart:{HEARTBEAT_SOCKET_COUNT}")
+    except Exception as e:
+        logging.warning(e)
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
+
+    global monitor_thread
+    monitor_thread = threading.Timer(5, monitor)
+    monitor_thread.start()
+
 
 def send_all(sock, data):
     bytes_sent = 0
@@ -109,19 +129,19 @@ def decrypt(data):
 
 class HeartBeatServer(socketserver.StreamRequestHandler):
     def handle(self):
+        global HEARTBEAT_SOCKET_COUNT
         sock = self.connection
+        HEARTBEAT_SOCKET_COUNT += 1
         sock.settimeout(10)
         try:
             data = sock.recv(4096)
         except TimeoutError:
-            return
+            logging.warning(f"HeartBeat Timed out")
         dec_data = decrypt(data)
         obj = hsp.handshake()
         peer_ip, port = sock.getpeername()
         # 收到请求时如果是白名单中的ip, 则不需要再校验
-        if peer_ip in white_list:
-            pass
-        else:
+        if peer_ip not in white_list:
             logging.info(f"received heartbeat from {peer_ip}, white_list:{white_list}, black_list:{black_list}")
             # 收到请求若是黑名单中的, 则直接拒绝
             if peer_ip in black_list:
@@ -146,13 +166,14 @@ class HeartBeatServer(socketserver.StreamRequestHandler):
                     fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                     logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
                     pass
-                finally:
-                    sock.close()
+        sock.close()
+        HEARTBEAT_SOCKET_COUNT -= 1
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
 
     def handle_tcp(self, sock, remote, addr):
+        global REMOTE_SOCKET_COUNT, LOCAL_SOCKET_COUNT
         try:
             fdset = [sock, remote]
             # sock: 服务端
@@ -164,6 +185,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                         data = sock.recv(65536)
                         # logging.info(f"got data from client: {addr} length: {len(data)}")
                         if len(data) <= 0:
+                            # logging.error(f"local recvd bytes error!{len(data)}")
                             break
 
                         data = decrypt(data)
@@ -173,6 +195,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                         data = remote.recv(65536)
                         # logging.info(f"got data from web server: {addr} length:{len(data)}")
                         if len(data) <= 0:
+                            # logging.error(f"remote recvd bytes error!{len(data)}")
                             break
 
                         data = encrypt(data)
@@ -206,22 +229,19 @@ class Socks5Server(socketserver.StreamRequestHandler):
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
             logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
 
-        finally:
-            sock.close()
-            remote.close()
-            logging.info(f'released resource! {addr}')
-
-
     def refuse_serve(self):
         self.wfile.write(b'0x15the_login_invalid_or_the_url_unreachable')
 
     def handle(self):  # override method
+        global REMOTE_SOCKET_COUNT, LOCAL_SOCKET_COUNT
         try:
             sock = self.connection
             sock.settimeout(10)
             data = sock.recv(4096)
+            LOCAL_SOCKET_COUNT += 1
             dec_data = decrypt(data)
             remote = None
+            addr = None
 
             peer_ip, peer_port = sock.getpeername()
             if peer_ip in black_list or peer_ip not in white_list:
@@ -246,7 +266,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
             try:
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-
+                REMOTE_SOCKET_COUNT += 1
                 remote.settimeout(5)
                 remote.connect((addr, port))  # connect to dst, may fail if blocked by gfw
 
@@ -254,13 +274,10 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 send_all(sock, encrypt(hsp.handshake(addr=addr, port=str(port)).encode_protocol()))
                 # do exchange
                 self.handle_tcp(sock, remote, str(addr))
-
             except ConnectionRefusedError:
                 logging.debug('connection refused: ' + str(addr))
-
             except socket.timeout:
                 logging.debug('TimeOut while connecting to: ' + str(addr))
-
             except Exception as e:
                 self.refuse_serve()
                 logging.warning(str(addr))
@@ -269,22 +286,21 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                 logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
                 # send empty message to browser
-
         except Exception as e:
             logging.warning(e)
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
             logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
         finally:
-            try:
+            if sock is not None:
                 sock.close()
+                LOCAL_SOCKET_COUNT -= 1
+            if remote is not None:
                 remote.close()
-                logging.info(f"[handle]released resource {addr}")
-            except:
-                exc_type, exc_obj, exc_tb = sys.exc_info()
-                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
-                pass
+                REMOTE_SOCKET_COUNT -= 1
+            if addr is not None:
+                logging.info(f'released resource! {addr}')
+
 
 
 def run_server(dst_server):
@@ -318,6 +334,9 @@ if __name__ == '__main__':
 
     pulse_server_thread = threading.Thread(target=run_server, args=(pulse_server,))
     pulse_server_thread.start()
+
+    # 启动监控
+    monitor()
 
     # 启动代理server
     try:
