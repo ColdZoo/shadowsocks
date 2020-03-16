@@ -237,7 +237,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
         global REMOTE_SOCKET_COUNT, LOCAL_SOCKET_COUNT
         try:
             sock = self.connection
-            sock.settimeout(10)
+            sock.settimeout(15)
             data = sock.recv(4096)
             LOCAL_SOCKET_COUNT += 1
             dec_data = decrypt(data)
@@ -268,7 +268,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 REMOTE_SOCKET_COUNT += 1
-                remote.settimeout(5)
+                remote.settimeout(50)
                 remote.connect((addr, port))  # connect to dst, may fail if blocked by gfw
 
                 # if connect successfully, should sent a random message to unblock the client.

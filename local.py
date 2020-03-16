@@ -64,7 +64,7 @@ def pulse(ip, port):
         logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
 
     global pulse_thread
-    pulse_thread = threading.Timer(5, pulse, (ip, port))
+    pulse_thread = threading.Timer(50, pulse, (ip, port))
     pulse_thread.start()
 
 
@@ -143,6 +143,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                     if sock in r:  # if local socket is ready for reading
                         data = sock.recv(65536)
                         if len(data) <= 0:  # received all data
+                            logging.warning(f"sock 0 bytes: {len(data)}")
                             break
                         data = encrypt(data)
                         result = send_all(remote, data)  # send data after encrypting
@@ -154,6 +155,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                         data = remote.recv(65536)
                         # logging.info(f"[remote]got data from: {addr} length is {len(data)}")
                         if len(data) <= 0:
+                            logging.warning(f"remote 0 bytes: {len(data)}")
                             break
 
                         data = decrypt(data)
