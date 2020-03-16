@@ -349,10 +349,10 @@ if __name__ == '__main__':
         worker_thread.start()
         workers.append(worker_thread)
 
-    # try:
-    #     server = ThreadingTCPServer(('', PORT), Socks5Server)
-    #     logging.info("starting server at port %d ..." % PORT)
-    #     server.serve_forever()
-    # except socket.error as e:
-    #     logging.error("[ABORTED!]")
-    #     logging.error(e)
+    try:
+        server = ThreadingTCPServer(('', PORT), Socks5Server)
+        logging.info("starting server at port %d ..." % PORT)
+        server.serve_forever()
+    except socket.error as e:
+        logging.error("[ABORTED!]")
+        logging.error(e)
