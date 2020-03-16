@@ -108,7 +108,10 @@ class HeartBeatServer(socketserver.StreamRequestHandler):
     def handle(self):
         sock = self.connection
         sock.settimeout(10)
-        data = sock.recv(4096)
+        try:
+            data = sock.recv(4096)
+        except TimeoutError:
+            return
         dec_data = decrypt(data)
         obj = hsp.handshake()
         peer_ip, port = sock.getpeername()
@@ -126,13 +129,17 @@ class HeartBeatServer(socketserver.StreamRequestHandler):
                     if obj.decode_protocol(dec_data) != 'Done':
                         # 加入黑名单
                         black_list.append(peer_ip)
+                        logging.info(
+                            f"after {peer_ip}, white_list:{white_list}, black_list:{black_list}")
+
                     else:
                         # 加入白名单
                         white_list.append(peer_ip)
                         black_list.remove(peer_ip)
-                        send_all(sock, encrypt(hsp.handshake(addr='hello', port=str(port)).encode_protocol()))
+                        logging.info(f"after {peer_ip}, white_list:{white_list}, black_list:{black_list}")
                 except Exception as e:
                     # 加入黑名单
+                    logging.error(e)
                     pass
 
 

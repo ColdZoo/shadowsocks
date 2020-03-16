@@ -148,16 +148,16 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
                         data = decrypt(data)
                         send_all(sock, data)
-
                 except ConnectionResetError:
                     logging.debug('connection has reset')
-                    continue
+                    break
 
         except Exception as e:
             logging.debug(e)
         finally:
             sock.close()
             remote.close()
+
 
     def handle(self):
         try:
