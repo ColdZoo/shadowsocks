@@ -58,7 +58,8 @@ monitor_thread = None
 
 def monitor():
     try:
-        logging.info(f"#Sockets: Remote:{REMOTE_SOCKET_COUNT} Local:{LOCAL_SOCKET_COUNT} Heart:{HEARTBEAT_SOCKET_COUNT}")
+        logging.info(
+            f"#Sockets: Remote:{REMOTE_SOCKET_COUNT} Local:{LOCAL_SOCKET_COUNT} Heart:{HEARTBEAT_SOCKET_COUNT}")
     except Exception as e:
         logging.warning(e)
         exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -302,7 +303,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 logging.info(f'released resource! {addr}')
 
 
-
 def run_server(dst_server):
     dst_server.serve_forever()
 
@@ -339,10 +339,20 @@ if __name__ == '__main__':
     monitor()
 
     # 启动代理server
-    try:
-        server = ThreadingTCPServer(('', PORT), Socks5Server)
-        logging.info("starting server at port %d ..." % PORT)
-        server.serve_forever()
-    except socket.error as e:
-        logging.error("[ABORTED!]")
-        logging.error(e)
+    worker_count = 5
+    workers = []
+
+    for i in range(0, worker_count):
+        worker_server = ThreadingTCPServer(('', PORT + 10 + i), Socks5Server)
+        logging.info(f"starting server at port {PORT + 10 + i} ...")
+        worker_thread = threading.Thread(target=run_server, args=(worker_server,))
+        worker_thread.start()
+        workers.append(worker_thread)
+
+    # try:
+    #     server = ThreadingTCPServer(('', PORT), Socks5Server)
+    #     logging.info("starting server at port %d ..." % PORT)
+    #     server.serve_forever()
+    # except socket.error as e:
+    #     logging.error("[ABORTED!]")
+    #     logging.error(e)

@@ -45,6 +45,8 @@ except ImportError:
 # 用来执行心跳的线程
 pulse_thread = None
 
+WORKING_THREAD = 5
+
 
 def pulse(ip, port):
     try:
@@ -215,7 +217,11 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 else:
                     remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # turn off Nagling
-                remote.connect((SERVER, REMOTE_PORT))
+
+                # 随机挑选一个REMOTE_PORT 进行连接
+                dst_port = random.randint(0, WORKING_THREAD-1) + 10 + REMOTE_PORT
+                logging.info(f"--------------random port is: {dst_port}")
+                remote.connect((SERVER, dst_port))
 
                 # connected to the server, should complete authentication and after the peer has established connection
                 # to host.
