@@ -53,8 +53,13 @@ def pulse(ip, port):
         remote.connect((ip, port))
         # logging.info(f"sending heartbeat to {ip}:{port}")
         send_all(remote, encrypt(hsp.handshake(addr='hello', port=str(port)).encode_protocol()))
+    except ConnectionRefusedError:
+        logging.warning(f"cannot talk to {ip}:{port}")
     except Exception as e:
-        pass
+        logging.warning(e)
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
 
     global pulse_thread
     pulse_thread = threading.Timer(5, pulse, (ip, port))
@@ -120,13 +125,15 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
         except Exception as e:
             logging.warning(e)
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
 
     ''' RequestHandlerClass Definition '''
 
     def handle_tcp(self, sock, remote):
         try:
             fdset = [sock, remote]
-            remote_remaint = b''
 
             while True:
                 try:
@@ -154,6 +161,9 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
         except Exception as e:
             logging.debug(e)
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
         finally:
             sock.close()
             remote.close()
@@ -222,7 +232,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
                 if b'0x15the_login_invalid_or_the_url_unreachable' == confirm_msg:
                     logging.error('Error: 1. The url is unreachable for the proxy 2. Or encrypt method mismatch.')
-                    sock.close()
+                    sock.closeE()
                     return
 
                 # tell the browser we are ready to proxy for you.
@@ -231,19 +241,27 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 reply += socket.inet_aton('192.168.34.34') + struct.pack(">H", 1030)
                 self.wfile.write(reply)  # response packet
                 logging.info('requested: %s:%d' % (str_addr, port[0]))
+            except ConnectionRefusedError:
+                logging.warning("cannnot talk to server")
 
             except socket.error as es:
+                logging.warning(es)
+                exc_type, exc_obj, exc_tb = sys.exc_info()
+                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
+
                 reply = b"\x05\x04\x00\x01"  # host unreachable
                 self.wfile.write(reply)  # response packet
-                logging.warning(es)
                 sock.close()
                 return
 
             self.handle_tcp(sock, remote)
 
         except Exception as es:
-            logging.warning(es.__traceback__.tb_lineno)  # 打印行号
             logging.warning(es)
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
 
 
 if __name__ == '__main__':
@@ -273,7 +291,7 @@ if __name__ == '__main__':
     PORT = int(config['local_port'])
     KEY = config['password']
 
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(funcName)s %(lineno)d %(levelname)-8s %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
     # 启动心跳任务

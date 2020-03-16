@@ -94,6 +94,9 @@ def Mysend(sock, data):
 
     except Exception as e:
         logging.warning(e)
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
 
 
 def encrypt(data):
@@ -140,6 +143,9 @@ class HeartBeatServer(socketserver.StreamRequestHandler):
                 except Exception as e:
                     # 加入黑名单
                     logging.error(e)
+                    exc_type, exc_obj, exc_tb = sys.exc_info()
+                    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                    logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
                     pass
 
 
@@ -191,6 +197,9 @@ class Socks5Server(socketserver.StreamRequestHandler):
         except Exception as e:
             logging.debug("Transfer Accidentally exited")
             logging.debug(e)
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
 
         finally:
             sock.close()
@@ -223,6 +232,9 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
             except Exception as e:
                 self.refuse_serve()
+                exc_type, exc_obj, exc_tb = sys.exc_info()
+                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
                 return
 
             # got all required information
@@ -236,7 +248,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 # if connect successfully, should sent a random message to unblock the client.
                 send_all(sock, encrypt(hsp.handshake(addr=addr, port=str(port[0])).encode_protocol()))
 
-
             except ConnectionRefusedError:
                 logging.debug('connection refused: ' + str(addr))
 
@@ -244,10 +255,12 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 logging.debug('TimeOut while connecting to: ' + str(addr))
 
             except Exception as e:
-                # Connection refused
                 self.refuse_serve()
                 logging.warning(str(addr))
                 logging.warning(e)
+                exc_type, exc_obj, exc_tb = sys.exc_info()
+                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                logging.warning(f"{exc_type}  {fname}  {exc_tb.tb_lineno}")
                 return
                 # send empty message to browser
 
@@ -276,7 +289,7 @@ if __name__ == '__main__':
         if key == '-p':
             PORT = int(value)
 
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(funcName)s %(lineno)d %(levelname)-8s %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
     if '-6' in sys.argv[1:]:
