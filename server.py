@@ -181,13 +181,15 @@ class Socks5Server(socketserver.StreamRequestHandler):
             # remote: web服务器
             while True:
                 try:
-                    r, w, e = select.select(fdset, [], [])  # wait until ready
+                    r, w, e = select.select(fdset, [], [], timeout=60)  # wait until ready
+                    if not r or w or e:
+                        break
                     if sock in r:
                         data = sock.recv(65536)
                         # logging.info(f"got data from client: {addr} length: {len(data)}")
                         if len(data) <= 0:
                             # logging.error(f"local recvd bytes error!{len(data)}")
-                            break
+                            continue
 
                         data = decrypt(data)
                         send_all(remote, data)
@@ -197,7 +199,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                         # logging.info(f"got data from web server: {addr} length:{len(data)}")
                         if len(data) <= 0:
                             # logging.error(f"remote recvd bytes error!{len(data)}")
-                            break
+                            continue
 
                         data = encrypt(data)
 
@@ -339,7 +341,7 @@ if __name__ == '__main__':
     monitor()
 
     # 启动代理server
-    worker_count = 5
+    worker_count = 1
     workers = []
 
     for i in range(0, worker_count):

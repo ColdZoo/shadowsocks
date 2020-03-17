@@ -45,7 +45,7 @@ except ImportError:
 # 用来执行心跳的线程
 pulse_thread = None
 
-WORKING_THREAD = 5
+WORKING_THREAD = 1
 
 
 def pulse(ip, port):
@@ -175,10 +175,11 @@ class Socks5Server(socketserver.StreamRequestHandler):
             remote = None
             addr = ""
             sock = self.connection  # local socket [127.1:port]
+            sock.settimeout(15)
             # follow SOCKS5 protocol
             sock.recv(262)  # Sock5 Verification packet
             sock.send(b"\x05\x00")  # Sock5 Response: '0x05' Version 5; '0x00' NO AUTHENTICATION REQUIRED
-            data = sock.recv(4096).strip()
+            data = sock.recv(65536).strip()
 
             if data == b'':
                 return
@@ -219,6 +220,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 else:
                     remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # turn off Nagling
+                remote.settimeout(50)
 
                 # 随机挑选一个REMOTE_PORT 进行连接
                 dst_port = random.randint(0, WORKING_THREAD-1) + 10 + REMOTE_PORT
