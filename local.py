@@ -220,7 +220,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 else:
                     remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # turn off Nagling
-                remote.settimeout(50)
+                remote.settimeout(20)
 
                 # 随机挑选一个REMOTE_PORT 进行连接
                 dst_port = random.randint(0, WORKING_THREAD-1) + 10 + REMOTE_PORT

@@ -270,7 +270,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 REMOTE_SOCKET_COUNT += 1
-                remote.settimeout(50)
+                remote.settimeout(20)
                 remote.connect((addr, port))  # connect to dst, may fail if blocked by gfw
 
                 # if connect successfully, should sent a random message to unblock the client.
