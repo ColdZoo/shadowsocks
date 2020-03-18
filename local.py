@@ -139,27 +139,35 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
             while True:
                 try:
+                    sock_buffer = None
+                    remote_buffer = None
                     r, w, e = select.select(fdset, [], [])  # use select I/O multiplexing model
+                    if remote in w and remote_buffer is not None:
+                        send_all(remote, remote_buffer)
+                        remote_buffer = None
+                    if sock in w and sock_buffer is not None:
+                        send_all(sock, sock_buffer)
+                        sock_buffer = None
                     if sock in r:  # if local socket is ready for reading
                         data = sock.recv(65536)
                         if len(data) <= 0:  # received all data
                             logging.warning(f"sock 0 bytes: {len(data)}")
-                            break
-                        data = encrypt(data)
-                        result = send_all(remote, data)  # send data after encrypting
-
-                        if result < len(data):
-                            raise Exception('failed to send all data')
-
+                            continue
+                        remote_buffer = encrypt(data)
                     if remote in r:  # remote socket(proxy) ready for reading
                         data = remote.recv(65536)
                         # logging.info(f"[remote]got data from: {addr} length is {len(data)}")
                         if len(data) <= 0:
                             logging.warning(f"remote 0 bytes: {len(data)}")
-                            break
+                            continue
+                        sock_buffer = decrypt(data)
+                    if sock in e or remote in e:
+                        sock.shutdown(socket.SHUT_RDWR)
+                        remote.shutdown(socket.SHUT_RDWR)
 
-                        data = decrypt(data)
-                        send_all(sock, data)
+
+
+
                 except ConnectionResetError:
                     logging.debug('connection has reset')
                     break
@@ -223,7 +231,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 remote.settimeout(20)
 
                 # 随机挑选一个REMOTE_PORT 进行连接
-                dst_port = random.randint(0, WORKING_THREAD-1) + 10 + REMOTE_PORT
+                dst_port = random.randint(0, WORKING_THREAD - 1) + 10 + REMOTE_PORT
                 logging.info(f"--------------random port is: {dst_port}")
                 remote.connect((SERVER, dst_port))
 

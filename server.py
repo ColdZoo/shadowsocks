@@ -181,31 +181,36 @@ class Socks5Server(socketserver.StreamRequestHandler):
             # remote: web服务器
             while True:
                 try:
+                    sock_buffer = None
+                    remote_buffer = None
                     r, w, e = select.select(fdset, [], [], timeout=60)  # wait until ready
                     if not r or w or e:
+                        logging.error(f"select passed!{addr}")
                         break
+                    if remote in w and remote_buffer is not None:
+                        send_all(remote, remote_buffer)
+                        remote_buffer = None
+                    if sock in w and sock_buffer is not None:
+                        send_all(sock, sock_buffer)
+                        sock_buffer = None
                     if sock in r:
                         data = sock.recv(65536)
                         # logging.info(f"got data from client: {addr} length: {len(data)}")
                         if len(data) <= 0:
-                            # logging.error(f"local recvd bytes error!{len(data)}")
                             continue
-
                         data = decrypt(data)
-                        send_all(remote, data)
-
+                        remote_buffer = data
                     if remote in r:
                         data = remote.recv(65536)
                         # logging.info(f"got data from web server: {addr} length:{len(data)}")
                         if len(data) <= 0:
                             # logging.error(f"remote recvd bytes error!{len(data)}")
                             continue
-
                         data = encrypt(data)
-
-                        result = send_all(sock, data)
-                        if result < len(data):
-                            raise Exception('failed to send all data')
+                        sock_buffer = data
+                    if sock in e or remote in e:
+                        sock.shutdown(socket.SHUT_RDWR)
+                        remote.shutdown(socket.SHUT_RDWR)
 
                 except ConnectionResetError:
                     logging.debug('connection has reset ' + addr)
