@@ -151,14 +151,14 @@ class Socks5Server(socketserver.StreamRequestHandler):
                     if sock in r:  # if local socket is ready for reading
                         data = sock.recv(65536)
                         if len(data) <= 0:  # received all data
-                            logging.warning(f"sock 0 bytes: {len(data)}")
+                            # logging.warning(f"sock 0 bytes: {len(data)}")
                             continue
                         remote_buffer = encrypt(data)
                     if remote in r:  # remote socket(proxy) ready for reading
                         data = remote.recv(65536)
                         # logging.info(f"[remote]got data from: {addr} length is {len(data)}")
                         if len(data) <= 0:
-                            logging.warning(f"remote 0 bytes: {len(data)}")
+                            # logging.warning(f"remote 0 bytes: {len(data)}")
                             continue
                         sock_buffer = decrypt(data)
                     if sock in e or remote in e:
