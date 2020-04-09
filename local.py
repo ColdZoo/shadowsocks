@@ -21,55 +21,21 @@
 # SOFTWARE.
 import random
 import sys
-import socket
-import select
 import socketserver
 import struct
 import os
 import json
-import logging
-import getopt
-import myCrypt
 import handshake_protocol_v1 as hsp
 import threading
+from utils import *
 
 try:
     import gevent
     import gevent.monkey
-
     gevent.monkey.patch_all(dns=gevent.version_info[0] >= 1)
 except ImportError:
     gevent = None
     print(sys.stderr, 'warning: gevent not found, using threading instead')
-
-# 用来执行心跳的线程
-pulse_thread = None
-
-
-def pulse(ip, port):
-    try:
-        remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        remote.connect((ip, port))
-        logging.info(f"sending heartbeat to {ip}:{port}")
-        send_all(remote, encrypt(hsp.handshake(addr='hello', port=str(port)).encode_protocol()))
-    except Exception as e:
-        pass
-
-    global pulse_thread
-    pulse_thread = threading.Timer(5, pulse, (ip, port))
-    pulse_thread.start()
-
-
-def send_all(sock, data):
-    bytes_sent = 0
-    while True:
-        r = sock.send(data[bytes_sent:])
-        if r < 0:
-            return r
-        bytes_sent += r
-        if bytes_sent == len(data):
-            return bytes_sent
 
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -77,103 +43,24 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     request_queue_size = 100000
 
 
-def encrypt(data):
-    return myCrypt.encrypt(data)
-
-
-def decrypt(data):
-    return myCrypt.decrypt(data)
-
-
 def send_encrypt(sock, data):
     sock.send(encrypt(data))
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
-    def Mysplit(self, frame):  # return (head_rmnt, frame_list, tail_rmnt)
-        if hsp.SPLIT_STRING in frame:
-            frames = frame.split(hsp.SPLIT_STRING)
-            if len(frames) == 2:
-                frame_list = []
-            elif len(frames) > 2:
-                frame_list = frames[1:-1]
-            return (frames[0], frame_list, frames[-1])
-
-        else:
-            return (frame, None, None)  # it's a whole frame
-
-    def Mysend(self, sock, data):
-        if not isinstance(data, bytes):
-            pass
-        if data == b'':
-            return
-
-        n = hsp.bytedata()
-        try:
-            if n.decode_protocol(proto_byte=data) != 'Done':
-                logging.warning('Illegal packet, skipped')
-                return
-
-            result = send_all(sock, n.raw_data)  # send to local socket(application)
-            if result < len(n.raw_data):
-                raise Exception('failed to send all data')
-
-        except Exception as e:
-            logging.warning(e)
-
-    ''' RequestHandlerClass Definition '''
-
-    def handle_tcp(self, sock, remote):
-        try:
-            fdset = [sock, remote]
-            remote_remaint = b''
-
-            while True:
-                try:
-                    r, w, e = select.select(fdset, [], [])  # use select I/O multiplexing model
-                    if sock in r:  # if local socket is ready for reading
-                        data = sock.recv(4096)
-                        if len(data) <= 0:  # received all data
-                            break
-                        data = encrypt(data)
-                        result = send_all(remote, data)  # send data after encrypting
-
-                        if result < len(data):
-                            raise Exception('failed to send all data')
-
-                    if remote in r:  # remote socket(proxy) ready for reading
-                        data = remote.recv(4096)
-                        if len(data) <= 0:
-                            break
-
-                        data = decrypt(data)
-                        send_all(sock, data)
-
-                except ConnectionResetError:
-                    logging.debug('connection has reset')
-                    continue
-
-        except Exception as e:
-            logging.debug(e)
-        finally:
-            sock.close()
-            remote.close()
-
+    """ RequestHandlerClass Definition """
     def handle(self):
         try:
             sock = self.connection  # local socket [127.1:port]
 
-            # follow SOCKS5 protocol
-
+            # SOCKS5 protocol
             sock.recv(262)  # Sock5 Verification packet
             sock.send(b"\x05\x00")  # Sock5 Response: '0x05' Version 5; '0x00' NO AUTHENTICATION REQUIRED
-            data = sock.recv(4096).strip()
-
+            data = sock.recv(1024).strip()
             if data == b'':
                 return
 
             mode = data[1]  # CMD == 0x01 (connect)
-            data_to_send = {'type': 'handshake', 'version': 'v1'}
             if mode != 1:
                 logging.warning('mode != 1')
                 sock.close()
@@ -183,11 +70,10 @@ class Socks5Server(socketserver.StreamRequestHandler):
             ptr = 4  # next to read index
 
             if addrtype == 1:  # IPv4
-                ip_range = data[ptr:4 + ptr]
                 addr = socket.inet_ntoa(data[ptr:4 + ptr])  # get dst addr
                 str_addr = addr
                 ptr += 4
-            elif addrtype == 3:  # FQDN (Fully Qualified Domain Name)
+            elif addrtype == 3:  # (Fully Qualified Domain Name)
                 addr_len = int(data[ptr])  # Domain name's Length
                 ptr += 1
                 addr = data[ptr:ptr + addr_len]
@@ -201,12 +87,9 @@ class Socks5Server(socketserver.StreamRequestHandler):
             addr_port = data[ptr: 2 + ptr]
             # Parse the big endian port number. Note: The result is a tuple even if it contains exactly one item.
             port = struct.unpack('>H', addr_port)
-            data_to_send['dst_port'] = port[0]
             try:
-                if '-6' in sys.argv[1:]:  # IPv6 support
-                    remote = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-                else:
-                    remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                remote.settimeout(100)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # turn off Nagling
                 remote.connect((SERVER, REMOTE_PORT))
 
@@ -217,31 +100,31 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 m = hsp.handshake(addr=str_addr, port=str(port[0]))
                 msg = m.encode_protocol()
                 send_encrypt(remote, msg)  # encrypted handshake
-                rnd = random.randrange(1, 1000)
-                logging.debug(f"{rnd} will try blocked receiving now!!")
-                confirm_msg = remote.recv(4096)
-                logging.debug(f"{rnd} blocked receiving done")
+                confirm_msg = remote.recv(45)
 
                 if b'0x15the_login_invalid_or_the_url_unreachable' == confirm_msg:
-                    logging.error('Error: 1. The url is unreachable for the proxy 2. Or encrypt method mismatch.')
-                    sock.close()
+                    logging.error('server refused to serve for us!')
                     return
+
+                # if server closed socket directly
+                if confirm_msg == b'':
+                    raise socket.error("server refused")
+
+                logging.info(f'accepted request {str_addr} confirm_msg: {confirm_msg}')
 
                 # tell the browser we are ready to proxy for you.
                 reply = b"\x05\x00\x00\x01"  # VER REP RSV ATYP
-                # socks5 protocol needs this. its a must
+                # socks5 protocol needs this.
                 reply += socket.inet_aton('192.168.34.34') + struct.pack(">H", 1030)
                 self.wfile.write(reply)  # response packet
-                logging.info('requested: %s:%d' % (str_addr, port[0]))
 
             except socket.error as es:
                 reply = b"\x05\x04\x00\x01"  # host unreachable
                 self.wfile.write(reply)  # response packet
                 logging.warning(es)
-                sock.close()
                 return
 
-            self.handle_tcp(sock, remote)
+            handle_tcp(encrypt_sock=remote, plain_sock=sock)
 
         except Exception as es:
             logging.warning(es.__traceback__.tb_lineno)  # 打印行号
@@ -250,40 +133,18 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
-    print('toysocks v1.0')
-
-    FILE_NAME = 'config.json'
-
-    optlist, args = getopt.getopt(sys.argv[1:], 's:p:k:l:f:')
-    for key, value in optlist:
-        if key == '-p':
-            REMOTE_PORT = int(value)
-        elif key == '-k':
-            KEY = value
-        elif key == '-l':
-            PORT = int(value)
-        elif key == '-s':
-            SERVER = value
-        elif key == "-f":
-            FILE_NAME = value
-
-    print("Config file is: " + FILE_NAME)
+    print('toysocks v1.1')
+    FILE_NAME = 'config_local.json'
+    logging.info("Config file is: " + FILE_NAME)
     with open(FILE_NAME, 'rb') as f:
         config = json.load(f)
     SERVER = config['server']
     REMOTE_PORT = int(config['server_port'])
     PORT = int(config['local_port'])
-    KEY = config['password']
-
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
-
-    # 启动心跳任务
-    pulse(SERVER, REMOTE_PORT + 1)
 
     try:
         server = ThreadingTCPServer(('0.0.0.0', PORT), Socks5Server)
-        logging.info("starting server at port %d ..." % PORT)
+        logging.info(f"sock5 listening at port {PORT} ...")
         server.serve_forever()
     except socket.error as e:
         logging.error(e)
