@@ -22,7 +22,6 @@
 
 
 import sys
-
 try:
     import gevent, gevent.monkey
 
@@ -31,16 +30,16 @@ except ImportError:
     gevent = None
     print(sys.stderr, 'warning: gevent not found, using threading instead')
 
-import socket
 import socketserver
 import os
 import json
+import handshake_protocol_v1 as hsp
+from utils import *
 import logging
+import random
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)-8s %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
-import handshake_protocol_v1 as hsp
-from utils import *
 
 white_list = []
 black_list = []
@@ -64,7 +63,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
         try:
             sock = self.connection
             sock.settimeout(100)
-            data = sock.recv(4096)
+            data = sock.recv(40960)
             dec_data = decrypt(data)
 
             try:
@@ -87,12 +86,14 @@ class Socks5Server(socketserver.StreamRequestHandler):
             try:
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-
-                remote.settimeout(10)
+                remote.settimeout(10)  # remote may timeout
                 remote.connect((addr, port))  # connect to dst, may fail if blocked by gfw
 
+                # generate session id
+                session_id = 'sess' + str(random.randint(0, 1000))
+
                 # if connect successfully, should sent a random message to unblock the client.
-                send_all(sock, encrypt(b'0'*10))
+                send_all(sock, encrypt(session_id.encode(encoding="utf8")))
 
             except ConnectionRefusedError:
                 logging.debug('connection refused: ' + str(addr))
@@ -109,7 +110,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 return
 
             # do exchange
-            handle_tcp(encrypt_sock=sock, plain_sock=remote)
+
+            handle_tcp(encrypt_sock=sock, plain_sock=remote, cid=session_id)
         except Exception as ex:
             logging.warning(ex)
 

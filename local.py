@@ -19,19 +19,20 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import random
 import sys
 import socketserver
 import struct
 import os
 import json
 import handshake_protocol_v1 as hsp
-import threading
 from utils import *
+
+BLK_CNT = 0
 
 try:
     import gevent
     import gevent.monkey
+
     gevent.monkey.patch_all(dns=gevent.version_info[0] >= 1)
 except ImportError:
     gevent = None
@@ -49,7 +50,9 @@ def send_encrypt(sock, data):
 
 class Socks5Server(socketserver.StreamRequestHandler):
     """ RequestHandlerClass Definition """
+
     def handle(self):
+        global BLK_CNT
         try:
             sock = self.connection  # local socket [127.1:port]
 
@@ -100,7 +103,9 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 m = hsp.handshake(addr=str_addr, port=str(port[0]))
                 msg = m.encode_protocol()
                 send_encrypt(remote, msg)  # encrypted handshake
-                confirm_msg = remote.recv(45)
+                BLK_CNT += 1
+                logging.debug(f"BLK-CNT: {BLK_CNT}")
+                confirm_msg = remote.recv(450)
 
                 if b'0x15the_login_invalid_or_the_url_unreachable' == confirm_msg:
                     logging.error('server refused to serve for us!')
@@ -110,7 +115,10 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 if confirm_msg == b'':
                     raise socket.error("server refused")
 
-                logging.info(f'accepted request {str_addr} confirm_msg: {confirm_msg}')
+                session_id = decrypt(confirm_msg).decode(encoding="utf8")
+                BLK_CNT -= 1
+
+                logging.info(f'accepted {str_addr} with {session_id}')
 
                 # tell the browser we are ready to proxy for you.
                 reply = b"\x05\x00\x00\x01"  # VER REP RSV ATYP
@@ -124,7 +132,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 logging.warning(es)
                 return
 
-            handle_tcp(encrypt_sock=remote, plain_sock=sock)
+            handle_tcp(encrypt_sock=remote, plain_sock=sock, cid=session_id)
+            logging.debug(f"BLK-CNT: {BLK_CNT}")
 
         except Exception as es:
             logging.warning(es.__traceback__.tb_lineno)  # 打印行号
@@ -134,7 +143,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
 if __name__ == '__main__':
     os.chdir(os.path.dirname(__file__) or '.')
     print('toysocks v1.1')
-    FILE_NAME = 'config_local.json'
+    FILE_NAME = 'config.json'
+    # FILE_NAME = 'config_local.json'
     logging.info("Config file is: " + FILE_NAME)
     with open(FILE_NAME, 'rb') as f:
         config = json.load(f)
