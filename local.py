@@ -42,6 +42,10 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     request_queue_size = 100000
 
 
+class SocksCmdNotSupported(Exception):
+    pass
+
+
 def send_encrypt(sock, data):
     send_all(sock, encrypt(data))
 
@@ -62,9 +66,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
 
             mode = data[1]  # CMD == 0x01 (connect)
             if mode != 1:
-                logging.warning('mode != 1')
-                sock.close()
-                return
+                raise SocksCmdNotSupported()
 
             addrtype = data[3]  # indicate destination address type
             ptr = 4  # next to read index
@@ -82,8 +84,8 @@ class Socks5Server(socketserver.StreamRequestHandler):
             else:
                 # not support
                 logging.warning('addr_type not support')
-                sock.close()
-                return
+                raise SocksCmdNotSupported()
+
             addr_port = data[ptr: 2 + ptr]
             # Parse the big endian port number. Note: The result is a tuple even if it contains exactly one item.
             port = struct.unpack('>H', addr_port)
@@ -112,7 +114,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
                     raise socket.error("server refused")
 
                 session_id = decrypt(confirm_msg).decode(encoding="utf8")
-
                 logging.info(f'accepted {str_addr} with {session_id}')
 
                 # tell the browser we are ready to proxy for you.
@@ -126,6 +127,13 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 self.wfile.write(reply)  # response packet
                 logging.warning(es)
                 return
+            except SocksCmdNotSupported:
+                logging.debug("refusing an invalid request with cmd not support!")
+                reply = b"\x05\x07\x00\x01"  # Command not supported
+                send_all(sock, reply)
+                sock.close()
+                return
+
 
             handle_tcp(encrypt_sock=remote, plain_sock=sock, cid=session_id)
 

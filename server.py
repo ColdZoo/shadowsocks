@@ -105,7 +105,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 # Connection refused
                 self.refuse_serve()
                 if addr:
-                    logging.warning(str(addr))
+                    logging.warning("refused a request" + str(addr))
                 logging.warning(e_general)
                 return
 
