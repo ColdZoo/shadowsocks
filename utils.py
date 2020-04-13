@@ -36,7 +36,7 @@ def handle_tcp(encrypt_sock, plain_sock, cid=0):
     enc_read_cnt = enc_write_cnt = 0
     try:
         fdset = [encrypt_sock, plain_sock]
-        while trans_cnt < 5000:  # too long transaction may out of sync
+        while trans_cnt < 50000:  # too long transaction may out of sync
             try:
                 r, w, e = select.select(fdset, [], [])  # wait until ready
                 trans_cnt += 1

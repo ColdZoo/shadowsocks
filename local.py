@@ -27,8 +27,6 @@ import json
 import handshake_protocol_v1 as hsp
 from utils import *
 
-BLK_CNT = 0
-
 try:
     import gevent
     import gevent.monkey
@@ -45,17 +43,16 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 
 def send_encrypt(sock, data):
-    sock.send(encrypt(data))
+    send_all(sock, encrypt(data))
 
 
 class Socks5Server(socketserver.StreamRequestHandler):
     """ RequestHandlerClass Definition """
 
     def handle(self):
-        global BLK_CNT
         try:
             sock = self.connection  # local socket [127.1:port]
-
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             # SOCKS5 protocol
             sock.recv(262)  # Sock5 Verification packet
             sock.send(b"\x05\x00")  # Sock5 Response: '0x05' Version 5; '0x00' NO AUTHENTICATION REQUIRED
@@ -103,8 +100,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 m = hsp.handshake(addr=str_addr, port=str(port[0]))
                 msg = m.encode_protocol()
                 send_encrypt(remote, msg)  # encrypted handshake
-                BLK_CNT += 1
-                logging.debug(f"BLK-CNT: {BLK_CNT}")
+                # logging.debug(f"BLK-CNT: {BLK_CNT}")
                 confirm_msg = remote.recv(450)
 
                 if b'0x15the_login_invalid_or_the_url_unreachable' == confirm_msg:
@@ -116,7 +112,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
                     raise socket.error("server refused")
 
                 session_id = decrypt(confirm_msg).decode(encoding="utf8")
-                BLK_CNT -= 1
 
                 logging.info(f'accepted {str_addr} with {session_id}')
 
@@ -133,7 +128,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 return
 
             handle_tcp(encrypt_sock=remote, plain_sock=sock, cid=session_id)
-            logging.debug(f"BLK-CNT: {BLK_CNT}")
 
         except Exception as es:
             logging.warning(es.__traceback__.tb_lineno)  # 打印行号
