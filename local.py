@@ -26,6 +26,7 @@ import os
 import json
 import handshake_protocol_v1 as hsp
 from utils import *
+import socket
 
 try:
     import gevent
@@ -133,7 +134,6 @@ class Socks5Server(socketserver.StreamRequestHandler):
                 send_all(sock, reply)
                 sock.close()
                 return
-
 
             handle_tcp(encrypt_sock=remote, plain_sock=sock, cid=session_id)
 
