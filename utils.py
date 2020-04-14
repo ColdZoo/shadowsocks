@@ -27,6 +27,14 @@ def send_all(sock, data):
             return bytes_sent
 
 
+def send_all_arr(sock, message_queue):
+    n = 0
+    for data in message_queue:
+        n += send_all(sock, data)
+    message_queue.clear()
+    return n
+
+
 def handle_tcp(encrypt_sock, plain_sock, cid=0):
     """
     encrypt_sock: 加密sock
@@ -34,27 +42,44 @@ def handle_tcp(encrypt_sock, plain_sock, cid=0):
     """
     trans_cnt = 0
     enc_read_cnt = enc_write_cnt = 0
+    message_queue = {encrypt_sock: [], plain_sock: []}
     try:
         fdset = [encrypt_sock, plain_sock]
-        while trans_cnt < 50000:  # too long transaction may out of sync
+        while True:  # too long transaction may out of sync
             try:
-                r, w, e = select.select(fdset, [], [])  # wait until ready
-                trans_cnt += 1
+                r, w, e = select.select(fdset, fdset, fdset)  # wait until ready
+                for s in e:
+                    if s == encrypt_sock:
+                        send_all_arr(plain_sock, message_queue[plain_sock])
+                        # plain_sock.close()
+                    elif s == plain_sock:
+                        send_all_arr(encrypt_sock, message_queue[encrypt_sock])
+                        # encrypt_sock.close()
+                    s.close()
+                    break
+
                 if encrypt_sock in r:
                     data = encrypt_sock.recv(40960)
-                    if len(data) <= 0:
+                    if data == b'':
+                        send_all_arr(plain_sock, message_queue[plain_sock])
                         break
                     enc_read_cnt += len(data)
                     data = decrypt(data)
-                    send_all(plain_sock, data)
+                    message_queue[plain_sock].append(data)
 
                 if plain_sock in r:
-                    data = plain_sock.recv(40960)
-                    if len(data) <= 0:
+                    data = plain_sock.recv(4096)
+                    if data == b'':
+                        send_all_arr(encrypt_sock, message_queue[encrypt_sock])
                         break
                     data = encrypt(data)
-                    n = send_all(encrypt_sock, data)
-                    enc_write_cnt += n
+                    message_queue[encrypt_sock].append(data)
+
+                if encrypt_sock in w:
+                    enc_write_cnt += send_all_arr(encrypt_sock, message_queue[encrypt_sock])
+
+                if plain_sock in w:
+                    send_all_arr(plain_sock, message_queue[plain_sock])
 
             except ConnectionResetError:
                 logging.debug('connection has reset ' + str(plain_sock.getpeername()))
@@ -68,14 +93,9 @@ def handle_tcp(encrypt_sock, plain_sock, cid=0):
                 logging.debug('broken pipe ' + str(plain_sock.getpeername()))
                 break
 
-            # except socket.error as socket_err:
-            #     logging.error(socket_err)
-            #     logging.error(str(plain_sock.getpeername()))
-            #     break
-
     except Exception as esd:
         logging.error(esd)
     finally:
         encrypt_sock.close()
         plain_sock.close()
-        logging.debug(f"[{cid}] trans_cnt:{trans_cnt}, enc_read:{enc_read_cnt}, enc_write:{enc_write_cnt}")
+        logging.debug(f"[{cid}] enc_read:{enc_read_cnt}, enc_write:{enc_write_cnt}")

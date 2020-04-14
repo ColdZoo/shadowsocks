@@ -86,7 +86,7 @@ class Socks5Server(socketserver.StreamRequestHandler):
             try:
                 remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                remote.settimeout(10)  # remote may timeout
+                remote.settimeout(20)  # remote may timeout
                 remote.connect((addr, port))  # connect to dst, may fail if blocked by gfw
 
                 # generate session id
