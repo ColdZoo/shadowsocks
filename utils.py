@@ -50,9 +50,9 @@ def handle_tcp(encrypt_sock, plain_sock, cid=0):
         fdset = [encrypt_sock, plain_sock]
         while True:  # too long transaction may out of sync
             try:
-                r, w, e = select.select(fdset, fdset, fdset)  # wait until ready
+                r, w, e = select.select(fdset, [], [])  # wait until ready
                 for s in e:
-                    logging.debug("socks exception caught")
+                    logging.debug(f"<{cid}>socks exception caught")
                     if s == encrypt_sock:
                         if plain_sock in w:
                             send_all_arr(plain_sock, message_queue[plain_sock])
@@ -77,6 +77,9 @@ def handle_tcp(encrypt_sock, plain_sock, cid=0):
                     data = decrypt(data)
                     message_queue[plain_sock] += data
 
+                    send_all_arr(plain_sock, message_queue[plain_sock])
+                    message_queue[plain_sock] = b''
+
                 if plain_sock in r:
                     data = plain_sock.recv(4096)
                     if data == b'':
@@ -86,6 +89,9 @@ def handle_tcp(encrypt_sock, plain_sock, cid=0):
                         break
                     data = encrypt(data)
                     message_queue[encrypt_sock] += data
+
+                    enc_write_cnt += send_all_arr(encrypt_sock, message_queue[encrypt_sock])
+                    message_queue[encrypt_sock] = b''
 
                 if encrypt_sock in w:
                     enc_write_cnt += send_all_arr(encrypt_sock, message_queue[encrypt_sock])
