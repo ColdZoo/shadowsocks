@@ -27,12 +27,8 @@ def send_all(sock, data):
 def send_all_arr(sock, message_queue):
     start_time = time.time()
     n = 0
-    # for data in message_queue:
-    #     n += send_all(sock, data)
-    # data_all = b''.join(message_queue)
     data_all = message_queue
     n += send_all(sock, data_all)
-    # message_queue.clear()
     elapsed_time = round(time.time() - start_time, 2)
     if elapsed_time > 1:
         logging.debug(f"time {elapsed_time}")
@@ -51,20 +47,6 @@ def handle_tcp(encrypt_sock, plain_sock, cid=0):
         while True:  # too long transaction may out of sync
             try:
                 r, w, e = select.select(fdset, [], [])  # wait until ready
-                for s in e:
-                    logging.debug(f"<{cid}>socks exception caught")
-                    if s == encrypt_sock:
-                        if plain_sock in w:
-                            send_all_arr(plain_sock, message_queue[plain_sock])
-                            message_queue[plain_sock] = b''
-                        plain_sock.close()
-                    elif s == plain_sock:
-                        if encrypt_sock in w:
-                            send_all_arr(encrypt_sock, message_queue[encrypt_sock])
-                            message_queue[encrypt_sock] = b''
-                        encrypt_sock.close()
-                    s.close()
-                    break
 
                 if encrypt_sock in r:
                     data = encrypt_sock.recv(40960)
@@ -92,14 +74,6 @@ def handle_tcp(encrypt_sock, plain_sock, cid=0):
 
                     enc_write_cnt += send_all_arr(encrypt_sock, message_queue[encrypt_sock])
                     message_queue[encrypt_sock] = b''
-
-                if encrypt_sock in w:
-                    enc_write_cnt += send_all_arr(encrypt_sock, message_queue[encrypt_sock])
-                    message_queue[encrypt_sock] = b''
-
-                if plain_sock in w:
-                    send_all_arr(plain_sock, message_queue[plain_sock])
-                    message_queue[plain_sock] = b''
 
             except ConnectionResetError:
                 logging.debug('connection has reset ' + str(plain_sock.getpeername()))
